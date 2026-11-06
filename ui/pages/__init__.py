@@ -1,0 +1,1 @@
+"""Simülasyon paneli ekranları (sayfalar)."""
