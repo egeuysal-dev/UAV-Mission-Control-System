@@ -76,7 +76,7 @@ pytest -v
 ## 🗺️ Geliştirme Aşamaları Durumu
 
 - [x] **Aşama 1 — Proje analizi ve mimari**
-- [ ] **Aşama 2 — Builder Kalıbı (İHA Yapılandırması)**
+- [x] **Aşama 2 — Builder Kalıbı (İHA Yapılandırması)**
 - [ ] **Aşama 3 — Adapter Kalıbı (Sensör Entegrasyonu)**
 - [ ] **Aşama 4 — Decorator Kalıbı (Telemetri Katmanları)**
 - [ ] **Aşama 5 — State Kalıbı (Uçuş Fazları)**

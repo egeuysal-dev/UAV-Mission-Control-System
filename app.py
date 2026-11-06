@@ -22,7 +22,7 @@ def get_architecture_overview() -> List[Dict[str, str]]:
             "category": "Yaratımsal (Creational)",
             "module": "src.patterns.builder",
             "classes": "UAVConfigurationBuilder, StrikeUAVBuilder, ReconUAVBuilder, MissionPrepDirector, UAVPlatform",
-            "status": "Aşama 2'de geliştirilecek",
+            "status": "Tamamlandı (Aşama 2)",
         },
         {
             "pattern": "2. Adapter",
