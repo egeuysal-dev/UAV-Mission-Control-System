@@ -36,7 +36,7 @@ def get_architecture_overview() -> List[Dict[str, str]]:
             "category": "Yapısal (Structural)",
             "module": "src.patterns.decorator",
             "classes": "TelemetryChannel, BaseRadioChannel, TelemetryChannelDecorator, AesEncryptionDecorator, CompressionDecorator, AntiJammingDecorator",
-            "status": "Aşama 4'te geliştirilecek",
+            "status": "Tamamlandı (Aşama 4)",
         },
         {
             "pattern": "4. State",
