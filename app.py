@@ -29,7 +29,7 @@ def get_architecture_overview() -> List[Dict[str, str]]:
             "category": "Yapısal (Structural)",
             "module": "src.patterns.adapter",
             "classes": "TargetSensor, StanagRadarAdapter, ThermalCameraAdapter, LegacyStanagRadarSDK, VendorThermalDevice, MissionComputer",
-            "status": "Aşama 3'te geliştirilecek",
+            "status": "Tamamlandı (Aşama 3)",
         },
         {
             "pattern": "3. Decorator",
