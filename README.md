@@ -79,7 +79,7 @@ pytest -v
 - [x] **Aşama 2 — Builder Kalıbı (İHA Yapılandırması)**
 - [x] **Aşama 3 — Adapter Kalıbı (Sensör Entegrasyonu)**
 - [x] **Aşama 4 — Decorator Kalıbı (Telemetri Katmanları)**
-- [ ] **Aşama 5 — State Kalıbı (Uçuş Fazları)**
+- [x] **Aşama 5 — State Kalıbı (Uçuş Fazları)**
 - [ ] **Aşama 6 — Strategy Kalıbı (Navigasyon Algoritmaları)**
 - [ ] **Aşama 7 — Görsel Arayüz (Streamlit + Plotly)**
 - [ ] **Aşama 8 — Test ve Dokümantasyon**

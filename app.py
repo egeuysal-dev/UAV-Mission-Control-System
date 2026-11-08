@@ -43,7 +43,7 @@ def get_architecture_overview() -> List[Dict[str, str]]:
             "category": "Davranışsal (Behavioral)",
             "module": "src.patterns.state",
             "classes": "FlightController, FlightPhaseState, PreflightIdleState, TakeOffState, CruiseState, CombatState, EmergencyReturnState",
-            "status": "Aşama 5'te geliştirilecek",
+            "status": "Tamamlandı (Aşama 5)",
         },
         {
             "pattern": "5. Strategy",
