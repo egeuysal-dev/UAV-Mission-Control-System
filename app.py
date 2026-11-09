@@ -50,7 +50,7 @@ def get_architecture_overview() -> List[Dict[str, str]]:
             "category": "Davranışsal (Behavioral)",
             "module": "src.patterns.strategy",
             "classes": "NavigationSystem, RoutePlanningStrategy, ShortestPathStrategy, RadarEvasionStrategy, LoiteringSearchStrategy",
-            "status": "Aşama 6'da geliştirilecek",
+            "status": "Tamamlandı (Aşama 6)",
         },
     ]
 

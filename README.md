@@ -80,6 +80,6 @@ pytest -v
 - [x] **Aşama 3 — Adapter Kalıbı (Sensör Entegrasyonu)**
 - [x] **Aşama 4 — Decorator Kalıbı (Telemetri Katmanları)**
 - [x] **Aşama 5 — State Kalıbı (Uçuş Fazları)**
-- [ ] **Aşama 6 — Strategy Kalıbı (Navigasyon Algoritmaları)**
+- [x] **Aşama 6 — Strategy Kalıbı (Navigasyon Algoritmaları)**
 - [ ] **Aşama 7 — Görsel Arayüz (Streamlit + Plotly)**
 - [ ] **Aşama 8 — Test ve Dokümantasyon**
