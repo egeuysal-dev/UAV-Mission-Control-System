@@ -81,5 +81,5 @@ pytest -v
 - [x] **Aşama 4 — Decorator Kalıbı (Telemetri Katmanları)**
 - [x] **Aşama 5 — State Kalıbı (Uçuş Fazları)**
 - [x] **Aşama 6 — Strategy Kalıbı (Navigasyon Algoritmaları)**
-- [ ] **Aşama 7 — Görsel Arayüz (Streamlit + Plotly)**
+- [x] **Aşama 7 — Görsel Arayüz (Streamlit + Plotly)**
 - [ ] **Aşama 8 — Test ve Dokümantasyon**

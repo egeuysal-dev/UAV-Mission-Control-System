@@ -1,62 +1,30 @@
 """
-İHA Görev ve Uçuş Kontrol Yazılımı — Ana Uygulama Giriş Noktası (Aşama 1 İskeleti).
+İHA Görev ve Uçuş Kontrol Yazılımı — Ana Streamlit Uygulaması.
 
-Bu dosya, Aşama 1 kapsamında çalıştırılabilir minimal uygulama iskeletini sunar.
-İlerleyen aşamalarda 5 GoF tasarım kalıbı ve ilgili simülasyon sayfaları
-modüler olarak bu giriş noktasına bağlanacaktır.
+Yedi etkileşimli simülasyon ekranını (Dashboard, UAV Configuration, Sensor Integration,
+Telemetry System, Flight Controller, Navigation, Design Patterns) yöneten giriş noktası.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List
-
 from src import __version__
+from src.simulation.mission_simulator import MissionSimulator
 from src.utils.logger import system_logger
+from ui.components.theme import inject_custom_css
+from ui.pages import (
+    get_architecture_overview,
+    render_dashboard_page,
+    render_design_patterns_page,
+    render_flight_controller_page,
+    render_navigation_page,
+    render_sensor_integration_page,
+    render_telemetry_system_page,
+    render_uav_config_page,
+)
 
 
-def get_architecture_overview() -> List[Dict[str, str]]:
-    """Projedeki 5 GoF tasarım kalıbının mimari özet tablosunu döndürür."""
-    return [
-        {
-            "pattern": "1. Builder",
-            "category": "Yaratımsal (Creational)",
-            "module": "src.patterns.builder",
-            "classes": "UAVConfigurationBuilder, StrikeUAVBuilder, ReconUAVBuilder, MissionPrepDirector, UAVPlatform",
-            "status": "Tamamlandı (Aşama 2)",
-        },
-        {
-            "pattern": "2. Adapter",
-            "category": "Yapısal (Structural)",
-            "module": "src.patterns.adapter",
-            "classes": "TargetSensor, StanagRadarAdapter, ThermalCameraAdapter, LegacyStanagRadarSDK, VendorThermalDevice, MissionComputer",
-            "status": "Tamamlandı (Aşama 3)",
-        },
-        {
-            "pattern": "3. Decorator",
-            "category": "Yapısal (Structural)",
-            "module": "src.patterns.decorator",
-            "classes": "TelemetryChannel, BaseRadioChannel, TelemetryChannelDecorator, AesEncryptionDecorator, CompressionDecorator, AntiJammingDecorator",
-            "status": "Tamamlandı (Aşama 4)",
-        },
-        {
-            "pattern": "4. State",
-            "category": "Davranışsal (Behavioral)",
-            "module": "src.patterns.state",
-            "classes": "FlightController, FlightPhaseState, PreflightIdleState, TakeOffState, CruiseState, CombatState, EmergencyReturnState",
-            "status": "Tamamlandı (Aşama 5)",
-        },
-        {
-            "pattern": "5. Strategy",
-            "category": "Davranışsal (Behavioral)",
-            "module": "src.patterns.strategy",
-            "classes": "NavigationSystem, RoutePlanningStrategy, ShortestPathStrategy, RadarEvasionStrategy, LoiteringSearchStrategy",
-            "status": "Tamamlandı (Aşama 6)",
-        },
-    ]
-
-
-def render_streamlit_skeleton() -> None:
-    """Streamlit tabanlı minimal simülasyon kontrol paneli iskeletini çizer."""
+def render_app() -> None:
+    """Ana Streamlit kontrol paneli arayüzünü ve kenar çubuğu (sidebar) navigasyonunu çizer."""
     import streamlit as st
 
     st.set_page_config(
@@ -65,30 +33,59 @@ def render_streamlit_skeleton() -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
+    inject_custom_css()
 
-    st.title("🛸 İHA Görev ve Uçuş Kontrol Yazılımı")
-    st.caption(
-        f"Sürüm v{__version__} | Eğitim ve Sentetik Simülasyon Platformu | Aşama 1: Mimari İskelet"
-    )
+    if "simulator" not in st.session_state:
+        st.session_state["simulator"] = MissionSimulator()
 
-    st.info(
-        "Sistem mimarisi ve klasör iskeleti başarıyla hazırlandı. "
-        "Beş temel GoF tasarım kalıbı Aşama 2–6 arasında adım adım entegre edilecektir."
-    )
+    sim: MissionSimulator = st.session_state["simulator"]
 
-    st.subheader("Planlanan GoF Tasarım Kalıpları ve Katmanlar")
-    st.table(get_architecture_overview())
+    # Sol Kenar Çubuğu (Sidebar)
+    with st.sidebar:
+        st.markdown("## 🛸 İHA Görev Kontrol")
+        st.caption(f"Sürüm v{__version__} | GoF Simülasyon Platformu")
+        st.divider()
 
-    if st.button("Test Sistem Olayı Kaydet"):
-        system_logger.info("CoreSkeleton", "Aşama 1 sistem doğrulama sinyali üretildi.")
+        pages = {
+            "1. 📊 Dashboard (Genel Durum)": "DASHBOARD",
+            "2. 🛠️ UAV Configuration (Builder)": "BUILDER",
+            "3. 📡 Sensor Integration (Adapter)": "ADAPTER",
+            "4. 🔐 Telemetry System (Decorator)": "DECORATOR",
+            "5. 🎮 Flight Controller (State)": "STATE",
+            "6. 🧭 Navigation (Strategy)": "STRATEGY",
+            "7. 📐 Design Patterns (UML)": "PATTERNS",
+        }
+        selected_label = st.radio("Simülasyon Ekranları:", options=list(pages.keys()))
+        active_page = pages[selected_label]
 
-    st.subheader("Sistem Olay Günlüğü (Event Log)")
-    events = system_logger.get_events()
-    if not events:
-        st.write("Henüz kayıtlı sistem olayı bulunmuyor.")
-    else:
-        for ev in reversed(events):
-            st.code(f"[{ev.timestamp}] [{ev.level}] [{ev.module}] {ev.message}")
+        st.divider()
+        st.markdown("### 📌 Anlık Telemetri Özeti")
+        st.markdown(f"- **Platform:** `{sim.active_platform.model_name}`")
+        st.markdown(f"- **Uçuş Fazı:** `{sim.flight_controller.current_phase_name}`")
+        st.markdown(f"- **İrtifa / Hız:** `{sim.flight_controller.altitude_m:.0f} m` / `{sim.flight_controller.speed_knots:.0f} kts`")
+        if sim.last_route_plan:
+            st.markdown(f"- **Aktif Rota:** `{sim.last_route_plan.strategy_name}`")
+        st.markdown(f"- **Telemetri Katmanı:** `{len(sim.decorator_layers)}` aktif")
+
+        if st.button("🔄 Tüm Simülasyonu Sıfırla", use_container_width=True):
+            st.session_state["simulator"] = MissionSimulator()
+            st.rerun()
+
+    # Seçilen Ekranı Çiz
+    if active_page == "DASHBOARD":
+        render_dashboard_page(sim)
+    elif active_page == "BUILDER":
+        render_uav_config_page(sim)
+    elif active_page == "ADAPTER":
+        render_sensor_integration_page(sim)
+    elif active_page == "DECORATOR":
+        render_telemetry_system_page(sim)
+    elif active_page == "STATE":
+        render_flight_controller_page(sim)
+    elif active_page == "STRATEGY":
+        render_navigation_page(sim)
+    elif active_page == "PATTERNS":
+        render_design_patterns_page()
 
 
 if __name__ == "__main__":
@@ -97,7 +94,7 @@ if __name__ == "__main__":
         from streamlit.runtime.scriptrunner import get_script_run_ctx
 
         if get_script_run_ctx() is not None:
-            render_streamlit_skeleton()
+            render_app()
         else:
             for item in get_architecture_overview():
                 print(f"- {item['pattern']} ({item['category']}): {item['status']}")
