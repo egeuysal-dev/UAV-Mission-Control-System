@@ -9,7 +9,10 @@ import streamlit as st
 from src.models.flight_state_models import FlightCommands
 from src.patterns.state import PreflightIdleState
 from src.simulation.mission_simulator import MissionSimulator
-from ui.components.charts import create_flight_dynamics_chart
+from ui.components.charts import (
+    create_avionics_gauges_chart,
+    create_flight_dynamics_chart,
+)
 from ui.components.theme import render_pattern_header
 
 
@@ -41,6 +44,11 @@ def render_flight_controller_page(sim: MissionSimulator) -> None:
     if summary["emergency_reason"]:
         st.error(f"🚨 **AKTİF ACİL DURUM (FAILSAFE):** {summary['emergency_reason']}")
 
+    # Canlı Aviyonik Uçuş Göstergeleri (4'lü PFD Kadran Paneli)
+    st.markdown("#### 🎛️ Anlık Kokpit Uçuş Kadranları (State Değişimlerine Duyarlı PFD)")
+    pfd_fig = create_avionics_gauges_chart(sim.get_hud_telemetry())
+    st.plotly_chart(pfd_fig, use_container_width=True)
+
     col_cmd, col_rules = st.columns([3, 2])
 
     with col_cmd:
@@ -62,6 +70,13 @@ def render_flight_controller_page(sim: MissionSimulator) -> None:
             FlightCommands.LAND_AND_PARKING: "İniş ve Park (LAND_AND_PARKING)",
         }
 
+        if "last_fc_feedback" in st.session_state:
+            fb_ok, fb_msg = st.session_state.pop("last_fc_feedback")
+            if fb_ok:
+                st.success(fb_msg)
+            else:
+                st.error(fb_msg)
+
         btn_cols = st.columns(2)
         for idx, (cmd_key, cmd_label) in enumerate(cmd_descriptions.items()):
             is_allowed = cmd_key in allowed_set
@@ -75,9 +90,16 @@ def render_flight_controller_page(sim: MissionSimulator) -> None:
             ):
                 res = fc.execute_command(cmd_key)
                 if res.accepted:
-                    st.success(f"✔️ **Kabul Edildi (`{res.previous_phase}` ➡️ `{res.current_phase}`):** {res.message}")
+                    st.session_state["last_fc_feedback"] = (
+                        True,
+                        f"✔️ **Kabul Edildi (`{res.previous_phase}` ➡️ `{res.current_phase}`):** {res.message}",
+                    )
                 else:
-                    st.error(f"❌ **Reddedildi (`{res.current_phase}`):** {res.message}")
+                    st.session_state["last_fc_feedback"] = (
+                        False,
+                        f"❌ **Reddedildi (`{res.current_phase}`):** {res.message}",
+                    )
+                st.rerun()
 
         st.divider()
         st.markdown("#### 🚨 Acil Durum (Failsafe) Senaryo Tetikleyicisi (`trigger_emergency`)")

@@ -9,6 +9,7 @@ import streamlit as st
 from src.simulation.mission_simulator import MissionSimulator
 from src.utils.logger import system_logger
 from ui.components.charts import (
+    create_avionics_gauges_chart,
     create_route_map_2d_chart,
     create_weight_breakdown_chart,
 )
@@ -61,6 +62,11 @@ def render_dashboard_page(sim: MissionSimulator) -> None:
         f"{route.total_distance_km if route else 0:.1f} km",
     )
 
+    # Canlı Aviyonik Uçuş Göstergeleri (4'lü PFD Kadran Paneli)
+    st.markdown("#### 🎛️ Canlı Aviyonik Uçuş Göstergeleri (Primary Flight Display — PFD)")
+    gauges_fig = create_avionics_gauges_chart(sim.get_hud_telemetry())
+    st.plotly_chart(gauges_fig, use_container_width=True)
+
     st.divider()
 
     # Simülasyon Döngüsü (Tick) Kontrolü
@@ -73,14 +79,19 @@ def render_dashboard_page(sim: MissionSimulator) -> None:
     with ctrl_col2:
         if st.button("🚀 Tek Adım Simülasyon Döngüsü Çalıştır (Run Tick)", type="primary", use_container_width=True):
             tick_info = sim.run_simulation_tick(auto_evade_radar_threat=auto_evade)
-            st.toast(
+            st.session_state["last_tick_toast"] = (
                 f"Simülasyon Döngüsü #{tick_info['tick']} tamamlandı! "
-                f"({tick_info['targets_collected']} hedef okundu, {tick_info['telemetry_bytes']}B iletildi)"
+                f"({tick_info['targets_collected']} hedef okundu, {tick_info['telemetry_bytes']}B iletildi, "
+                f"Kalan Yakıt: {tick_info['fuel_remaining_kg']:.1f} kg)"
             )
+            st.rerun()
     with ctrl_col3:
         if st.button("🧹 Logları Temizle", use_container_width=True):
             system_logger.clear()
             st.rerun()
+
+    if "last_tick_toast" in st.session_state:
+        st.success(st.session_state.pop("last_tick_toast"))
 
     # Orta Bölüm: 2B Harita ve Ağırlık/Telemetri Özeti
     left_col, right_col = st.columns([3, 2])

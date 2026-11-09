@@ -10,7 +10,7 @@ from __future__ import annotations
 from src import __version__
 from src.simulation.mission_simulator import MissionSimulator
 from src.utils.logger import system_logger
-from ui.components.theme import inject_custom_css
+from ui.components.theme import inject_custom_css, render_top_hud_bar
 from ui.pages import (
     get_architecture_overview,
     render_dashboard_page,
@@ -35,7 +35,9 @@ def render_app() -> None:
     )
     inject_custom_css()
 
-    if "simulator" not in st.session_state:
+    if "simulator" not in st.session_state or not hasattr(
+        st.session_state["simulator"], "get_hud_telemetry"
+    ):
         st.session_state["simulator"] = MissionSimulator()
 
     sim: MissionSimulator = st.session_state["simulator"]
@@ -70,6 +72,9 @@ def render_app() -> None:
         if st.button("🔄 Tüm Simülasyonu Sıfırla", use_container_width=True):
             st.session_state["simulator"] = MissionSimulator()
             st.rerun()
+
+    # Üst Aviyonik Telemetri Durum Şeridi (Top HUD Bar)
+    render_top_hud_bar(sim.get_hud_telemetry())
 
     # Seçilen Ekranı Çiz
     if active_page == "DASHBOARD":

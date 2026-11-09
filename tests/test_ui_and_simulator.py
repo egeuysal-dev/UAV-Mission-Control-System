@@ -10,6 +10,7 @@ from src.models.flight_state_models import FlightCommands
 from src.patterns.strategy import ShortestPathStrategy
 from src.simulation.mission_simulator import MissionSimulator
 from ui.components.charts import (
+    create_avionics_gauges_chart,
     create_flight_dynamics_chart,
     create_route_map_2d_chart,
     create_sensor_polar_and_cartesian_charts,
@@ -93,3 +94,14 @@ def test_plotly_chart_builders_return_valid_figures() -> None:
     fig_map = create_route_map_2d_chart([sim.last_route_plan], sim.restricted_zones)
     assert isinstance(fig_map, go.Figure)
     assert len(fig_map.data) >= 3
+
+    hud = sim.get_hud_telemetry()
+    assert hud["flight_phase"] == "TAKE_OFF"
+    assert hud["airspeed_knots"] > 0
+    assert hud["altitude_m"] > 0
+    assert 0.0 <= hud["fuel_pct"] <= 100.0
+    assert len(hud["security_badges"]) == 3
+
+    fig_gauges = create_avionics_gauges_chart(hud)
+    assert isinstance(fig_gauges, go.Figure)
+    assert len(fig_gauges.data) == 4

@@ -8,7 +8,7 @@ Plotly tabanlı 2B simülasyon grafikleri ve görselleştirme oluşturucuları.
 from __future__ import annotations
 
 import math
-from typing import Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import plotly.graph_objects as go
 
@@ -22,6 +22,155 @@ _DARK_BG = "#0f172a"
 _PAPER_BG = "#111827"
 _GRID_COLOR = "#1e293b"
 _TEXT_COLOR = "#e2e8f0"
+
+
+def create_avionics_gauges_chart(hud: Dict[str, Any]) -> go.Figure:
+    """
+    Canlı Uçuş Göstergeleri (Avionics PFD Cluster):
+    Hava Hızı (IAS knots), İrtifa (ALT m/ft), Motor İtkisi (THR %) ve Kalan Yakıt (FUEL %/kg)
+    değerlerini gerçek zamanlı 4'lü dairesel havacılık kadranı (`go.Indicator`) olarak çizer.
+    """
+    fig = go.Figure()
+
+    # 1. Kadran: Hava Hızı (Airspeed — knots)
+    fig.add_trace(
+        go.Indicator(
+            mode="gauge+number",
+            value=float(hud["airspeed_knots"]),
+            number={"suffix": " kts", "font": {"size": 22, "color": "#38bdf8"}},
+            title={
+                "text": "HAVA HIZI (IAS)<br><span style='font-size:11px;color:#94a3b8'>Seyir Zarbı: 60–145 kts</span>",
+                "font": {"size": 13, "color": _TEXT_COLOR},
+            },
+            domain={"x": [0.00, 0.22], "y": [0.05, 0.82]},
+            gauge={
+                "axis": {"range": [0, 180], "tickwidth": 1, "tickcolor": "#64748b"},
+                "bar": {"color": "#38bdf8", "thickness": 0.32},
+                "bgcolor": _DARK_BG,
+                "borderwidth": 1,
+                "bordercolor": "#334155",
+                "steps": [
+                    {"range": [0, 60], "color": "rgba(100, 116, 139, 0.25)"},
+                    {"range": [60, 145], "color": "rgba(16, 185, 129, 0.22)"},
+                    {"range": [145, 165], "color": "rgba(245, 158, 11, 0.28)"},
+                    {"range": [165, 180], "color": "rgba(239, 68, 68, 0.32)"},
+                ],
+                "threshold": {
+                    "line": {"color": "#ef4444", "width": 3},
+                    "thickness": 0.8,
+                    "value": 165,
+                },
+            },
+        )
+    )
+
+    # 2. Kadran: İrtifa (Altimeter — metre & feet)
+    fig.add_trace(
+        go.Indicator(
+            mode="gauge+number",
+            value=float(hud["altitude_m"]),
+            number={"suffix": " m", "valueformat": ".0f", "font": {"size": 22, "color": "#22c55e"}},
+            title={
+                "text": f"İRTİFA (ALT)<br><span style='font-size:11px;color:#94a3b8'>{hud['altitude_ft']:,} ft MSL</span>",
+                "font": {"size": 13, "color": _TEXT_COLOR},
+            },
+            domain={"x": [0.26, 0.48], "y": [0.05, 0.82]},
+            gauge={
+                "axis": {"range": [0, 8000], "tickwidth": 1, "tickcolor": "#64748b"},
+                "bar": {"color": "#22c55e", "thickness": 0.32},
+                "bgcolor": _DARK_BG,
+                "borderwidth": 1,
+                "bordercolor": "#334155",
+                "steps": [
+                    {"range": [0, 1500], "color": "rgba(56, 189, 248, 0.18)"},
+                    {"range": [1500, 6500], "color": "rgba(34, 197, 94, 0.22)"},
+                    {"range": [6500, 8000], "color": "rgba(245, 158, 11, 0.28)"},
+                ],
+                "threshold": {
+                    "line": {"color": "#38bdf8", "width": 3},
+                    "thickness": 0.8,
+                    "value": 6000,
+                },
+            },
+        )
+    )
+
+    # 3. Kadran: Motor İtkisi (Throttle — %)
+    fig.add_trace(
+        go.Indicator(
+            mode="gauge+number",
+            value=float(hud["throttle_pct"]),
+            number={"suffix": "%", "valueformat": ".0f", "font": {"size": 22, "color": "#f59e0b"}},
+            title={
+                "text": f"MOTOR İTKİSİ (THR)<br><span style='font-size:11px;color:#94a3b8'>Faz: {hud['flight_phase']}</span>",
+                "font": {"size": 13, "color": _TEXT_COLOR},
+            },
+            domain={"x": [0.52, 0.74], "y": [0.05, 0.82]},
+            gauge={
+                "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "#64748b"},
+                "bar": {"color": "#f59e0b", "thickness": 0.32},
+                "bgcolor": _DARK_BG,
+                "borderwidth": 1,
+                "bordercolor": "#334155",
+                "steps": [
+                    {"range": [0, 25], "color": "rgba(100, 116, 139, 0.22)"},
+                    {"range": [25, 80], "color": "rgba(16, 185, 129, 0.22)"},
+                    {"range": [80, 92], "color": "rgba(245, 158, 11, 0.28)"},
+                    {"range": [92, 100], "color": "rgba(239, 68, 68, 0.35)"},
+                ],
+                "threshold": {
+                    "line": {"color": "#ef4444", "width": 3},
+                    "thickness": 0.8,
+                    "value": 95,
+                },
+            },
+        )
+    )
+
+    # 4. Kadran: Kalan Yakıt (Fuel — % & kg)
+    fuel_val = float(hud["fuel_pct"])
+    fuel_bar_color = "#10b981" if fuel_val > 35 else ("#f59e0b" if fuel_val > 15 else "#ef4444")
+    fig.add_trace(
+        go.Indicator(
+            mode="gauge+number",
+            value=fuel_val,
+            number={"suffix": "%", "valueformat": ".0f", "font": {"size": 22, "color": fuel_bar_color}},
+            title={
+                "text": (
+                    f"KALAN YAKIT (FUEL)<br><span style='font-size:11px;color:#94a3b8'>"
+                    f"{hud['fuel_remaining_kg']:.0f} / {hud['fuel_initial_kg']:.0f} kg</span>"
+                ),
+                "font": {"size": 13, "color": _TEXT_COLOR},
+            },
+            domain={"x": [0.78, 1.00], "y": [0.05, 0.82]},
+            gauge={
+                "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "#64748b"},
+                "bar": {"color": fuel_bar_color, "thickness": 0.32},
+                "bgcolor": _DARK_BG,
+                "borderwidth": 1,
+                "bordercolor": "#334155",
+                "steps": [
+                    {"range": [0, 15], "color": "rgba(239, 68, 68, 0.35)"},
+                    {"range": [15, 35], "color": "rgba(245, 158, 11, 0.28)"},
+                    {"range": [35, 100], "color": "rgba(16, 185, 129, 0.20)"},
+                ],
+                "threshold": {
+                    "line": {"color": "#ef4444", "width": 3},
+                    "thickness": 0.8,
+                    "value": 15,
+                },
+            },
+        )
+    )
+
+    fig.update_layout(
+        height=215,
+        margin=dict(l=20, r=20, t=35, b=10),
+        paper_bgcolor=_PAPER_BG,
+        plot_bgcolor=_DARK_BG,
+        font=dict(color=_TEXT_COLOR),
+    )
+    return fig
 
 
 def create_weight_breakdown_chart(platform: UAVPlatform) -> go.Figure:
