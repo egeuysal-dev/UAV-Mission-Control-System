@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 
 import plotly.graph_objects as go
 
-from src.models.navigation_models import RestrictedZone, RoutePlan
+from src.models.navigation_models import Point2D, RestrictedZone, RoutePlan
 from src.models.sensor_models import TargetData
 from src.models.telemetry_models import TelemetryPacketResult
 from src.patterns.builder import UAVPlatform
@@ -442,10 +442,18 @@ def create_route_map_2d_chart(
     route_plans: Sequence[RoutePlan],
     restricted_zones: Sequence[RestrictedZone],
     active_strategy_name: Optional[str] = None,
+    uav_position: Optional[Point2D] = None,
+    uav_heading_deg: Optional[float] = None,
+    flight_trail: Optional[Sequence[Point2D]] = None,
+    sensor_fov_range_km: float = 18.0,
+    sensor_fov_half_angle_deg: float = 28.0,
+    detected_targets: Optional[Sequence[TargetData]] = None,
 ) -> go.Figure:
     """
-    Strategy Kalıbı: 2B sentetik harita (100x100 km) üzerinde dairesel kısıtlı
-    bölgeleri ve seçilen/karşılaştırılan stratejilerin ürettiği 2B rotaları çizer.
+    Strategy Kalıbı + Canlı İHA Takibi:
+    2B sentetik harita (100x100 km) üzerinde dairesel kısıtlı bölgeleri, seçilen
+    rotaları, İHA'nın kat ettiği uçuş izini (`flight_trail`), ileri yönlü sensör
+    tarama konisini (`FOV cone`), anlık İHA konumunu/yönünü ve algılanan hedefleri çizer.
     """
     fig = go.Figure()
 
@@ -490,8 +498,8 @@ def create_route_map_2d_chart(
         is_highlighted = (
             active_strategy_name is None or plan.strategy_name == active_strategy_name
         )
-        line_width = 4.0 if is_highlighted else 2.0
-        opacity = 1.0 if is_highlighted else 0.55
+        line_width = 3.5 if is_highlighted else 2.0
+        opacity = 0.85 if is_highlighted else 0.45
 
         xs = [wp.x_km for wp in plan.waypoints]
         ys = [wp.y_km for wp in plan.waypoints]
@@ -507,7 +515,7 @@ def create_route_map_2d_chart(
                 textposition="top center",
                 opacity=opacity,
                 line=dict(color=st_cfg["color"], width=line_width, dash=st_cfg["dash"]),
-                marker=dict(size=9 if is_highlighted else 6, color=st_cfg["color"]),
+                marker=dict(size=8 if is_highlighted else 6, color=st_cfg["color"]),
             )
         )
 
@@ -534,8 +542,101 @@ def create_route_map_2d_chart(
             )
         )
 
+    # 4. Kat Edilen Uçuş İzi (Flight Trail / Breadcrumb)
+    if flight_trail and len(flight_trail) >= 2:
+        trail_x = [pt.x_km for pt in flight_trail]
+        trail_y = [pt.y_km for pt in flight_trail]
+        fig.add_trace(
+            go.Scatter(
+                x=trail_x,
+                y=trail_y,
+                mode="lines+markers",
+                name="✈️ Kat Edilen Uçuş İzi (Flight Trail)",
+                line=dict(color="#f59e0b", width=4.0),
+                marker=dict(size=6, color="#fbbf24", symbol="circle"),
+            )
+        )
+
+    # 5. Canlı İHA Konumu, Yön Vektörü ve İleri Sensör Tarama Konisi (FOV Cone)
+    if uav_position is not None:
+        hdg = uav_heading_deg if uav_heading_deg is not None else 45.0
+
+        # Sensör Tarama Konisi (FOV Sector)
+        cone_angles = [
+            hdg - sensor_fov_half_angle_deg + (i * (2.0 * sensor_fov_half_angle_deg) / 20.0)
+            for i in range(21)
+        ]
+        cone_x = [uav_position.x_km] + [
+            uav_position.x_km + sensor_fov_range_km * math.sin(math.radians(a))
+            for a in cone_angles
+        ] + [uav_position.x_km]
+        cone_y = [uav_position.y_km] + [
+            uav_position.y_km + sensor_fov_range_km * math.cos(math.radians(a))
+            for a in cone_angles
+        ] + [uav_position.y_km]
+
+        fig.add_trace(
+            go.Scatter(
+                x=cone_x,
+                y=cone_y,
+                fill="toself",
+                fillcolor="rgba(56, 189, 248, 0.17)",
+                line=dict(color="rgba(56, 189, 248, 0.65)", width=1.5, dash="dot"),
+                name=f"📡 Sensör Tarama Konisi (FOV {sensor_fov_range_km:.0f} km)",
+                hoverinfo="name",
+            )
+        )
+
+        # Algılanan Sensör Hedeflerini İHA Konumuna Göre Harita Üzerinde Göster
+        if detected_targets:
+            tgt_x = [
+                min(102.0, max(2.0, round(uav_position.x_km + t.cartesian_x_km * 0.55, 2)))
+                for t in detected_targets
+            ]
+            tgt_y = [
+                min(102.0, max(2.0, round(uav_position.y_km + t.cartesian_y_km * 0.55, 2)))
+                for t in detected_targets
+            ]
+            tgt_labels = [f"🎯 {t.target_id}" for t in detected_targets]
+            fig.add_trace(
+                go.Scatter(
+                    x=tgt_x,
+                    y=tgt_y,
+                    mode="markers+text",
+                    name="🎯 Algılanan Sensör İzleri",
+                    text=tgt_labels,
+                    textposition="bottom center",
+                    marker=dict(
+                        size=11,
+                        color="#f97316",
+                        symbol="cross-thin",
+                        line=dict(width=2.5, color="#fb923c"),
+                    ),
+                )
+            )
+
+        # Canlı İHA Sembolü (Pusula açısına göre döndürülmüş üçgen)
+        fig.add_trace(
+            go.Scatter(
+                x=[uav_position.x_km],
+                y=[uav_position.y_km],
+                mode="markers+text",
+                name=f"🛸 Aktif İHA ({uav_position.x_km:.1f}, {uav_position.y_km:.1f})",
+                text=[f"🛸 İHA ({hdg:.0f}°)"],
+                textposition="bottom right",
+                textfont=dict(color="#38bdf8", size=12),
+                marker=dict(
+                    size=17,
+                    color="#38bdf8",
+                    symbol="triangle-up",
+                    angle=hdg,
+                    line=dict(width=2, color="#ffffff"),
+                ),
+            )
+        )
+
     fig.update_layout(
-        title="2B Sentetik Görev Haritası ve Rota Karşılaştırması (100x100 km)",
+        title="2B Sentetik Görev Haritası, Canlı İHA Konumu ve Sensör FOV Simülasyonu (100x100 km)",
         xaxis=dict(title="Doğu X Koordinatı (km)", range=[0, 105], gridcolor=_GRID_COLOR),
         yaxis=dict(
             title="Kuzey Y Koordinatı (km)",
@@ -544,11 +645,11 @@ def create_route_map_2d_chart(
             scaleanchor="x",
             scaleratio=1,
         ),
-        height=520,
+        height=540,
         margin=dict(l=30, r=30, t=50, b=30),
         paper_bgcolor=_PAPER_BG,
         plot_bgcolor=_DARK_BG,
         font=dict(color=_TEXT_COLOR),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.22, xanchor="center", x=0.5),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.24, xanchor="center", x=0.5),
     )
     return fig

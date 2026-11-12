@@ -35,8 +35,10 @@ def render_app() -> None:
     )
     inject_custom_css()
 
-    if "simulator" not in st.session_state or not hasattr(
-        st.session_state["simulator"], "get_hud_telemetry"
+    if (
+        "simulator" not in st.session_state
+        or not hasattr(st.session_state["simulator"], "get_hud_telemetry")
+        or not hasattr(st.session_state["simulator"], "uav_position")
     ):
         st.session_state["simulator"] = MissionSimulator()
 
@@ -65,6 +67,7 @@ def render_app() -> None:
         st.markdown(f"- **Platform:** `{sim.active_platform.model_name}`")
         st.markdown(f"- **Uçuş Fazı:** `{sim.flight_controller.current_phase_name}`")
         st.markdown(f"- **İrtifa / Hız:** `{sim.flight_controller.altitude_m:.0f} m` / `{sim.flight_controller.speed_knots:.0f} kts`")
+        st.markdown(f"- **İHA Konumu:** `({sim.uav_position.x_km:.1f}, {sim.uav_position.y_km:.1f}) km` (`%{sim.route_progress_pct:.0f}`)")
         if sim.last_route_plan:
             st.markdown(f"- **Aktif Rota:** `{sim.last_route_plan.strategy_name}`")
         st.markdown(f"- **Telemetri Katmanı:** `{len(sim.decorator_layers)}` aktif")

@@ -105,3 +105,55 @@ def test_plotly_chart_builders_return_valid_figures() -> None:
     fig_gauges = create_avionics_gauges_chart(hud)
     assert isinstance(fig_gauges, go.Figure)
     assert len(fig_gauges.data) == 4
+
+    fig_live_map = create_route_map_2d_chart(
+        route_plans=[sim.last_route_plan],
+        restricted_zones=sim.restricted_zones,
+        active_strategy_name=sim.last_route_plan.strategy_name,
+        uav_position=sim.uav_position,
+        uav_heading_deg=sim.heading_deg,
+        flight_trail=sim.flight_trail,
+        sensor_fov_range_km=sim.sensor_fov_range_km,
+        sensor_fov_half_angle_deg=sim.sensor_fov_half_angle_deg,
+        detected_targets=sim.last_targets,
+    )
+    assert isinstance(fig_live_map, go.Figure)
+    assert len(fig_live_map.data) >= 6
+
+
+def test_uav_movement_trail_and_automatic_low_fuel_failsafe() -> None:
+    """
+    Öneri B: İHA'nın rota üzerinde adım adım ilerlediğini, uçuş izi (`flight_trail`)
+    bıraktığını, kritik yakıt seviyesinde (<=%15) otomatik olarak `EMERGENCY_RETURN`
+    fazına geçtiğini ve Ana Üsse doğru geri döndüğünü doğrular.
+    """
+    sim = MissionSimulator()
+    assert sim.uav_position.x_km == sim.start_point.x_km
+    assert sim.uav_position.y_km == sim.start_point.y_km
+    assert len(sim.flight_trail) == 1
+
+    # Otopilot ile 3 adım ilerle
+    for _ in range(3):
+        sim.run_simulation_tick(auto_lifecycle=True, step_distance_km=20.0)
+
+    assert sim.route_distance_traveled_km == 60.0
+    assert sim.route_progress_pct > 0.0
+    assert len(sim.flight_trail) == 4
+    assert sim.uav_position.distance_to(sim.start_point) > 15.0
+    assert sim.flight_controller.current_phase_name in ("TAKE_OFF", "CRUISE")
+
+    # Kritik yakıt (<=%15) simülasyonu ve otomatik Failsafe RTB tetiklemesi
+    dist_before_rtb = sim.uav_position.distance_to(sim.start_point)
+    sim.current_fuel_kg = round(sim.active_platform.fuel_weight_kg * 0.12, 1)
+    rtb_tick = sim.run_simulation_tick(auto_lifecycle=True, step_distance_km=15.0)
+
+    assert rtb_tick["emergency_triggered"] is True
+    assert sim.flight_controller.current_phase_name == "EMERGENCY_RETURN"
+    dist_after_rtb = sim.uav_position.distance_to(sim.start_point)
+    assert dist_after_rtb < dist_before_rtb
+
+    # Üsse sıfırlama kontrolü
+    sim.reset_flight_position()
+    assert sim.route_distance_traveled_km == 0.0
+    assert len(sim.flight_trail) == 1
+    assert sim.flight_controller.current_phase_name == "PREFLIGHT_IDLE"

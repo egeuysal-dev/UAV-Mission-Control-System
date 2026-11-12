@@ -86,17 +86,40 @@ def render_navigation_page(sim: MissionSimulator) -> None:
             sim.start_point, sim.destination_point, sim.restricted_zones
         )
         sim.last_route_plan = active_plan
+        sim._update_heading_from_route()
         all_plans = sim.navigation_system.compare_all_strategies(
             sim.start_point, sim.destination_point, sim.restricted_zones
         )
 
+        st.markdown("#### 🛸 Canlı İHA Konumu & Sensör Tarama Konisi")
+        sim.sensor_fov_range_km = st.slider(
+            "Sensör Tarama Menzili (FOV km):",
+            min_value=8.0,
+            max_value=32.0,
+            value=float(sim.sensor_fov_range_km),
+            step=2.0,
+        )
+        nav_btn1, nav_btn2 = st.columns(2)
+        if nav_btn1.button("🚀 Rotada +1 Adım Uç", use_container_width=True, type="primary"):
+            sim.run_simulation_tick(auto_evade_radar_threat=False, auto_lifecycle=True)
+            st.rerun()
+        if nav_btn2.button("🔄 Üsse Sıfırla", use_container_width=True):
+            sim.reset_flight_position()
+            st.rerun()
+
     with col_map:
-        st.subheader("🗺️ 2B Sentetik Harita ve Rota Görselleştirmesi")
+        st.subheader("🗺️ 2B Sentetik Harita, Rota Karşılaştırması ve Canlı İHA Takibi")
         plans_to_draw = all_plans if show_all else [active_plan]
         map_fig = create_route_map_2d_chart(
             route_plans=plans_to_draw,
             restricted_zones=sim.restricted_zones,
             active_strategy_name=active_plan.strategy_name,
+            uav_position=sim.uav_position,
+            uav_heading_deg=sim.heading_deg,
+            flight_trail=sim.flight_trail,
+            sensor_fov_range_km=sim.sensor_fov_range_km,
+            sensor_fov_half_angle_deg=sim.sensor_fov_half_angle_deg,
+            detected_targets=sim.last_targets,
         )
         st.plotly_chart(map_fig, use_container_width=True)
 
