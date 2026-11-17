@@ -8,7 +8,7 @@ Plotly tabanlı 2B simülasyon grafikleri ve görselleştirme oluşturucuları.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import plotly.graph_objects as go
 
@@ -457,9 +457,28 @@ def create_route_map_2d_chart(
     """
     fig = go.Figure()
 
-    # 1. Kısıtlı Bölgeleri (RestrictedZone) daire olarak çiz
+    # 0. Taktik Sektör Kılavuz Çizgileri (Quadrant Grid)
+    fig.add_vline(x=50.0, line_width=1, line_dash="dot", line_color="#334155")
+    fig.add_hline(y=50.0, line_width=1, line_dash="dot", line_color="#334155")
+
+    # 1. Kısıtlı Bölgeleri (RestrictedZone) dış erken-ihbar halkası + iç yasak bölge olarak çiz
     for zone in restricted_zones:
         theta_vals = [math.radians(deg) for deg in range(0, 365, 5)]
+        outer_r = round(zone.radius_km * 1.22, 1)
+        ox = [zone.center.x_km + outer_r * math.cos(t) for t in theta_vals]
+        oy = [zone.center.y_km + outer_r * math.sin(t) for t in theta_vals]
+        fig.add_trace(
+            go.Scatter(
+                x=ox,
+                y=oy,
+                mode="lines",
+                line=dict(color="rgba(245, 158, 11, 0.55)", width=1.2, dash="dot"),
+                name=f"Radar İhbar Halkası: {zone.zone_id} ({outer_r} km)",
+                showlegend=False,
+                hoverinfo="name",
+            )
+        )
+
         zx = [zone.center.x_km + zone.radius_km * math.cos(t) for t in theta_vals]
         zy = [zone.center.y_km + zone.radius_km * math.sin(t) for t in theta_vals]
 
@@ -651,5 +670,397 @@ def create_route_map_2d_chart(
         plot_bgcolor=_DARK_BG,
         font=dict(color=_TEXT_COLOR),
         legend=dict(orientation="h", yanchor="bottom", y=-0.24, xanchor="center", x=0.5),
+    )
+    return fig
+
+
+def _synthetic_terrain_elevation_m(distance_km: float, total_dist_km: float) -> float:
+    """Rota mesafesi boyunca gerçekçi sentetik arazi yükselti profili (metre MSL) üretir."""
+    if total_dist_km <= 0.0:
+        return 180.0
+    ratio = distance_km / total_dist_km
+    hill_1 = 420.0 * math.sin(ratio * math.pi)
+    ridge_2 = 240.0 * (math.sin(ratio * 3.2 * math.pi) ** 2)
+    detail = 75.0 * math.cos(ratio * 7.0 * math.pi)
+    return round(max(120.0, 210.0 + hill_1 + ridge_2 + detail), 1)
+
+
+def _compute_waypoint_profile(
+    plan: RoutePlan,
+) -> Tuple[List[float], List[float], List[str]]:
+    """
+    Bir `RoutePlan` içindeki waypoint'ler için:
+    - Kümülatif mesafe listesini (`km`)
+    - Her waypoint'teki planlanan irtifayı (`m`)
+    - Waypoint etiketlerini döndürür.
+    """
+    wps = plan.waypoints
+    if not wps:
+        return [0.0], [0.0], ["Başlangıç"]
+
+    cum_dists: List[float] = [0.0]
+    for i in range(1, len(wps)):
+        cum_dists.append(round(cum_dists[-1] + wps[i - 1].distance_to(wps[i]), 2))
+
+    rec_alt = plan.recommended_altitude_m
+    altitudes: List[float] = []
+    labels: List[str] = []
+    n_wps = len(wps)
+
+    for idx, wp in enumerate(wps):
+        labels.append(wp.label or f"WP-{idx + 1}")
+        if idx == 0:
+            altitudes.append(220.0)  # Kalkış pisti / Başlangıç irtifası
+        elif idx == n_wps - 1:
+            altitudes.append(round(max(1100.0, rec_alt * 0.80), 0))  # Görev/Hedef yaklaşma irtifası
+        else:
+            altitudes.append(rec_alt)
+
+    # Eğer sadece 2 nokta varsa (ör. ShortestPathStrategy), tırmanış ve alçalış omuz noktaları ekle
+    if len(cum_dists) == 2 and cum_dists[-1] > 10.0:
+        total_d = cum_dists[-1]
+        cum_dists = [
+            0.0,
+            round(total_d * 0.14, 2),
+            round(total_d * 0.85, 2),
+            total_d,
+        ]
+        altitudes = [
+            220.0,
+            rec_alt,
+            rec_alt,
+            round(max(1100.0, rec_alt * 0.80), 0),
+        ]
+        labels = [
+            wps[0].label or "Kalkış (Start)",
+            "TOC (Tırmanış Sonu)",
+            "TOD (Alçalış Başı)",
+            wps[-1].label or "Hedef (Target)",
+        ]
+
+    return cum_dists, altitudes, labels
+
+
+def create_altitude_profile_chart(
+    route_plan: RoutePlan,
+    distance_traveled_km: float = 0.0,
+    current_altitude_m: float = 0.0,
+    current_phase_name: str = "PREFLIGHT_IDLE",
+) -> go.Figure:
+    """
+    Öneri C — Dikey Durum Göstergesi (Vertical Situation Display / Altitude Profile):
+    Rota mesafesi boyunca sentetik arazi yükselti kesitini, minimum güvenli irtifa (MSA)
+    sınırını, seçilen stratejinin önerdiği dikey uçuş zarfını ve İHA'nın anlık irtifa/mesafe
+    konumunu çizer.
+    """
+    fig = go.Figure()
+    total_dist = max(10.0, route_plan.total_distance_km)
+
+    # 1. Sentetik Arazi Kesiti ve Minimum Güvenli İrtifa (MSA)
+    sample_count = 60
+    dist_samples = [round((i / sample_count) * total_dist, 2) for i in range(sample_count + 1)]
+    terrain_m = [_synthetic_terrain_elevation_m(d, total_dist) for d in dist_samples]
+    msa_m = [round(t + 380.0, 1) for t in terrain_m]
+
+    fig.add_trace(
+        go.Scatter(
+            x=dist_samples,
+            y=terrain_m,
+            fill="tozeroy",
+            fillcolor="rgba(71, 85, 105, 0.42)",
+            line=dict(color="#64748b", width=2),
+            name="⛰️ Arazi Yükselti Kesiti (MSL)",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=dist_samples,
+            y=msa_m,
+            mode="lines",
+            line=dict(color="#ef4444", width=1.5, dash="dot"),
+            name="⚠️ Min. Güvenli İrtifa (MSA +380m)",
+        )
+    )
+
+    # 2. Planlanan Strateji Dikey Uçuş Profili
+    wp_dists, wp_alts, wp_labels = _compute_waypoint_profile(route_plan)
+    fig.add_trace(
+        go.Scatter(
+            x=wp_dists,
+            y=wp_alts,
+            mode="lines+markers+text",
+            name=f"📐 Planlanan Dikey Profil ({route_plan.recommended_altitude_m:.0f} m)",
+            text=[f"{lbl}<br>({alt:.0f}m)" for lbl, alt in zip(wp_labels, wp_alts)],
+            textposition="top center",
+            line=dict(color="#10b981", width=3, dash="solid"),
+            marker=dict(size=9, color="#10b981", symbol="diamond"),
+        )
+    )
+
+    # 3. Canlı İHA Dikey Konumu ve Yerden Yükseklik (AGL) İzdüşümü
+    clamped_d = min(total_dist, max(0.0, distance_traveled_km))
+    ground_below = _synthetic_terrain_elevation_m(clamped_d, total_dist)
+    effective_alt = (
+        max(ground_below, current_altitude_m)
+        if current_phase_name != "PREFLIGHT_IDLE"
+        else ground_below
+    )
+    agl_m = max(0.0, round(effective_alt - ground_below, 0))
+
+    fig.add_trace(
+        go.Scatter(
+            x=[clamped_d, clamped_d],
+            y=[ground_below, effective_alt],
+            mode="lines",
+            line=dict(color="#38bdf8", width=2, dash="dash"),
+            name=f"📏 Yerden Yükseklik (AGL: {agl_m:.0f} m)",
+            showlegend=True,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[clamped_d],
+            y=[effective_alt],
+            mode="markers+text",
+            name=f"🛸 Aktif İHA İrtifası ({effective_alt:.0f} m MSL)",
+            text=[f"🛸 İHA: {effective_alt:.0f} m MSL<br>(AGL: {agl_m:.0f} m)"],
+            textposition="bottom right",
+            textfont=dict(color="#38bdf8", size=12),
+            marker=dict(
+                size=15,
+                color="#38bdf8",
+                symbol="triangle-right",
+                line=dict(width=2, color="#ffffff"),
+            ),
+        )
+    )
+
+    max_y = max(7200.0, route_plan.recommended_altitude_m * 1.22, effective_alt * 1.2)
+    fig.update_layout(
+        title=(
+            f"⛰️ Dikey Uçuş ve Arazi Kesiti (Vertical Situation Display — {route_plan.strategy_title})"
+        ),
+        xaxis=dict(
+            title="Rota Boyunca Kümülatif Mesafe (km)",
+            range=[-2, total_dist * 1.05],
+            gridcolor=_GRID_COLOR,
+        ),
+        yaxis=dict(
+            title="İrtifa (Metre MSL)",
+            range=[0, max_y],
+            gridcolor=_GRID_COLOR,
+        ),
+        height=330,
+        margin=dict(l=30, r=30, t=50, b=30),
+        paper_bgcolor=_PAPER_BG,
+        plot_bgcolor=_DARK_BG,
+        font=dict(color=_TEXT_COLOR),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.28, xanchor="center", x=0.5),
+    )
+    return fig
+
+
+def create_route_map_3d_chart(
+    route_plans: Sequence[RoutePlan],
+    restricted_zones: Sequence[RestrictedZone],
+    active_strategy_name: Optional[str] = None,
+    uav_position: Optional[Point2D] = None,
+    current_altitude_m: float = 0.0,
+    flight_trail: Optional[Sequence[Point2D]] = None,
+) -> go.Figure:
+    """
+    Öneri C — 3B Hava Sahası, 3B Uçuş Yörüngeleri ve 3B Kısıtlı Bölge Radar Kubbeleri (`Scatter3d` / `Surface`):
+    100x100 km görev alanını 0–7000 m irtifa zarfıyla 3 boyutlu olarak görselleştirir.
+    """
+    fig = go.Figure()
+
+    # 1. Kısıtlı Bölgeleri 3B Radar Tehdit Kubbesi / Silindiri olarak çiz
+    dome_ceiling_m = 5200.0
+    for zone in restricted_zones:
+        theta_vals = [math.radians(deg) for deg in range(0, 365, 12)]
+        for ring_alt, ring_alpha, show_leg in [
+            (0.0, 0.9, True),
+            (2600.0, 0.65, False),
+            (dome_ceiling_m, 0.85, False),
+        ]:
+            rx = [zone.center.x_km + zone.radius_km * math.cos(t) for t in theta_vals]
+            ry = [zone.center.y_km + zone.radius_km * math.sin(t) for t in theta_vals]
+            rz = [ring_alt for _ in theta_vals]
+            fig.add_trace(
+                go.Scatter3d(
+                    x=rx,
+                    y=ry,
+                    z=rz,
+                    mode="lines",
+                    name=f"⚠️ 3B Radar Kubbesi: {zone.zone_id} (Tavan: {dome_ceiling_m:.0f}m)",
+                    showlegend=show_leg,
+                    line=dict(
+                        color=f"rgba(239, 68, 68, {ring_alpha})",
+                        width=4 if ring_alt == 0.0 else 2.5,
+                    ),
+                )
+            )
+
+        # Dikey radar kubbe dikmeleri (3B hacim algısı için)
+        pillar_x: List[Optional[float]] = []
+        pillar_y: List[Optional[float]] = []
+        pillar_z: List[Optional[float]] = []
+        for deg in range(0, 360, 45):
+            rad = math.radians(deg)
+            px = zone.center.x_km + zone.radius_km * math.cos(rad)
+            py = zone.center.y_km + zone.radius_km * math.sin(rad)
+            pillar_x.extend([px, px, None])
+            pillar_y.extend([py, py, None])
+            pillar_z.extend([0.0, dome_ceiling_m, None])
+
+        fig.add_trace(
+            go.Scatter3d(
+                x=pillar_x,
+                y=pillar_y,
+                z=pillar_z,
+                mode="lines",
+                line=dict(color="rgba(239, 68, 68, 0.40)", width=2),
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+
+    style_map = {
+        "SHORTEST_PATH": {"color": "#f43f5e", "dash": "dot"},
+        "RADAR_EVASION": {"color": "#10b981", "dash": "solid"},
+        "LOITERING_SEARCH": {"color": "#38bdf8", "dash": "dashdot"},
+    }
+
+    # 2. 3B Rota Yörüngelerini Çiz
+    for plan in route_plans:
+        st_cfg = style_map.get(plan.strategy_name, {"color": "#a855f7", "dash": "solid"})
+        is_highlighted = (
+            active_strategy_name is None or plan.strategy_name == active_strategy_name
+        )
+        wps = plan.waypoints
+        if not wps:
+            continue
+
+        xs = [wp.x_km for wp in wps]
+        ys = [wp.y_km for wp in wps]
+        rec_alt = plan.recommended_altitude_m
+        zs = [
+            220.0
+            if i == 0
+            else (round(max(1100.0, rec_alt * 0.80), 0) if i == len(wps) - 1 else rec_alt)
+            for i in range(len(wps))
+        ]
+        # Eğer sadece 2 nokta varsa (ShortestPathStrategy), orta noktada seyir irtifasını göster
+        if len(wps) == 2:
+            mid_x = round((wps[0].x_km + wps[1].x_km) / 2.0, 2)
+            mid_y = round((wps[0].y_km + wps[1].y_km) / 2.0, 2)
+            xs = [wps[0].x_km, mid_x, wps[1].x_km]
+            ys = [wps[0].y_km, mid_y, wps[1].y_km]
+            zs = [220.0, rec_alt, round(max(1100.0, rec_alt * 0.80), 0)]
+
+        fig.add_trace(
+            go.Scatter3d(
+                x=xs,
+                y=ys,
+                z=zs,
+                mode="lines+markers",
+                name=f"3B {plan.strategy_title} ({rec_alt:.0f} m)",
+                opacity=1.0 if is_highlighted else 0.50,
+                line=dict(color=st_cfg["color"], width=7 if is_highlighted else 4),
+                marker=dict(size=5 if is_highlighted else 3, color=st_cfg["color"]),
+            )
+        )
+
+        # Aktif rotanın yer izdüşümü dikmeleri (curtain lines)
+        if is_highlighted:
+            drop_x: List[Optional[float]] = []
+            drop_y: List[Optional[float]] = []
+            drop_z: List[Optional[float]] = []
+            for vx, vy, vz in zip(xs, ys, zs):
+                drop_x.extend([vx, vx, None])
+                drop_y.extend([vy, vy, None])
+                drop_z.extend([0.0, vz, None])
+            fig.add_trace(
+                go.Scatter3d(
+                    x=drop_x,
+                    y=drop_y,
+                    z=drop_z,
+                    mode="lines",
+                    line=dict(color="rgba(148, 163, 184, 0.35)", width=1.5),
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+
+    # 3. 3B Canlı Uçuş İzi ve Anlık İHA Konumu
+    uav_z = max(250.0, current_altitude_m)
+    if flight_trail and len(flight_trail) >= 2:
+        tx = [pt.x_km for pt in flight_trail]
+        ty = [pt.y_km for pt in flight_trail]
+        tz = [
+            220.0 if idx == 0 else uav_z
+            for idx in range(len(flight_trail))
+        ]
+        fig.add_trace(
+            go.Scatter3d(
+                x=tx,
+                y=ty,
+                z=tz,
+                mode="lines+markers",
+                name="✈️ 3B Kat Edilen Uçuş İzi",
+                line=dict(color="#f59e0b", width=6),
+                marker=dict(size=4, color="#fbbf24"),
+            )
+        )
+
+    if uav_position is not None:
+        fig.add_trace(
+            go.Scatter3d(
+                x=[uav_position.x_km],
+                y=[uav_position.y_km],
+                z=[uav_z],
+                mode="markers+text",
+                name=f"🛸 3B Aktif İHA ({uav_z:.0f} m)",
+                text=[f"🛸 İHA ({uav_position.x_km:.0f}, {uav_position.y_km:.0f} km | {uav_z:.0f}m)"],
+                textposition="top center",
+                marker=dict(
+                    size=9,
+                    color="#38bdf8",
+                    symbol="diamond",
+                    line=dict(width=2, color="#ffffff"),
+                ),
+            )
+        )
+
+    fig.update_layout(
+        title="🌐 3B Hava Sahası, Uçuş Yörüngeleri ve Kısıtlı Bölge Radar Kubbeleri",
+        scene=dict(
+            xaxis=dict(
+                title="Doğu X (km)",
+                range=[0, 105],
+                backgroundcolor=_DARK_BG,
+                gridcolor=_GRID_COLOR,
+            ),
+            yaxis=dict(
+                title="Kuzey Y (km)",
+                range=[0, 105],
+                backgroundcolor=_DARK_BG,
+                gridcolor=_GRID_COLOR,
+            ),
+            zaxis=dict(
+                title="İrtifa Z (m MSL)",
+                range=[0, 7000],
+                backgroundcolor=_DARK_BG,
+                gridcolor=_GRID_COLOR,
+            ),
+            camera=dict(eye=dict(x=1.45, y=-1.45, z=0.95)),
+            aspectmode="manual",
+            aspectratio=dict(x=1.2, y=1.2, z=0.65),
+        ),
+        height=560,
+        margin=dict(l=10, r=10, t=50, b=20),
+        paper_bgcolor=_PAPER_BG,
+        font=dict(color=_TEXT_COLOR),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.12, xanchor="center", x=0.5),
     )
     return fig

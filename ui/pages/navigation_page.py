@@ -13,7 +13,11 @@ from src.patterns.strategy import (
     ShortestPathStrategy,
 )
 from src.simulation.mission_simulator import MissionSimulator
-from ui.components.charts import create_route_map_2d_chart
+from ui.components.charts import (
+    create_altitude_profile_chart,
+    create_route_map_2d_chart,
+    create_route_map_3d_chart,
+)
 from ui.components.theme import render_pattern_header
 
 
@@ -108,20 +112,49 @@ def render_navigation_page(sim: MissionSimulator) -> None:
             st.rerun()
 
     with col_map:
-        st.subheader("🗺️ 2B Sentetik Harita, Rota Karşılaştırması ve Canlı İHA Takibi")
+        st.subheader("🗺️ Taktik Rota Görselleştirmesi (2B Harita | 3B Yörünge | Dikey Kesit)")
         plans_to_draw = all_plans if show_all else [active_plan]
-        map_fig = create_route_map_2d_chart(
-            route_plans=plans_to_draw,
-            restricted_zones=sim.restricted_zones,
-            active_strategy_name=active_plan.strategy_name,
-            uav_position=sim.uav_position,
-            uav_heading_deg=sim.heading_deg,
-            flight_trail=sim.flight_trail,
-            sensor_fov_range_km=sim.sensor_fov_range_km,
-            sensor_fov_half_angle_deg=sim.sensor_fov_half_angle_deg,
-            detected_targets=sim.last_targets,
+        nav_tab_2d, nav_tab_3d, nav_tab_vsd = st.tabs(
+            [
+                "🗺️ 2B Sentetik Harita & FOV",
+                "🌐 3B Uçuş Yörüngesi & Radar Kubbeleri (3D)",
+                "⛰️ Dikey İrtifa ve Arazi Kesiti (VSD)",
+            ]
         )
-        st.plotly_chart(map_fig, use_container_width=True)
+
+        with nav_tab_2d:
+            map_fig = create_route_map_2d_chart(
+                route_plans=plans_to_draw,
+                restricted_zones=sim.restricted_zones,
+                active_strategy_name=active_plan.strategy_name,
+                uav_position=sim.uav_position,
+                uav_heading_deg=sim.heading_deg,
+                flight_trail=sim.flight_trail,
+                sensor_fov_range_km=sim.sensor_fov_range_km,
+                sensor_fov_half_angle_deg=sim.sensor_fov_half_angle_deg,
+                detected_targets=sim.last_targets,
+            )
+            st.plotly_chart(map_fig, use_container_width=True)
+
+        with nav_tab_3d:
+            map_3d_fig = create_route_map_3d_chart(
+                route_plans=plans_to_draw,
+                restricted_zones=sim.restricted_zones,
+                active_strategy_name=active_plan.strategy_name,
+                uav_position=sim.uav_position,
+                current_altitude_m=sim.flight_controller.altitude_m,
+                flight_trail=sim.flight_trail,
+            )
+            st.plotly_chart(map_3d_fig, use_container_width=True)
+
+        with nav_tab_vsd:
+            vsd_fig = create_altitude_profile_chart(
+                route_plan=active_plan,
+                distance_traveled_km=sim.route_distance_traveled_km,
+                current_altitude_m=sim.flight_controller.altitude_m,
+                current_phase_name=sim.flight_controller.current_phase_name,
+            )
+            st.plotly_chart(vsd_fig, use_container_width=True)
 
         # Aktif Strateji Özet Durumu
         if active_plan.is_safe:

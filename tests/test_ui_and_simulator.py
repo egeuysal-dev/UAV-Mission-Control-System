@@ -10,9 +10,11 @@ from src.models.flight_state_models import FlightCommands
 from src.patterns.strategy import ShortestPathStrategy
 from src.simulation.mission_simulator import MissionSimulator
 from ui.components.charts import (
+    create_altitude_profile_chart,
     create_avionics_gauges_chart,
     create_flight_dynamics_chart,
     create_route_map_2d_chart,
+    create_route_map_3d_chart,
     create_sensor_polar_and_cartesian_charts,
     create_telemetry_stage_size_chart,
     create_weight_breakdown_chart,
@@ -157,3 +159,37 @@ def test_uav_movement_trail_and_automatic_low_fuel_failsafe() -> None:
     assert sim.route_distance_traveled_km == 0.0
     assert len(sim.flight_trail) == 1
     assert sim.flight_controller.current_phase_name == "PREFLIGHT_IDLE"
+
+
+def test_3d_route_map_and_altitude_profile_charts() -> None:
+    """
+    Öneri C: 3B uçuş yörüngesi / kısıtlı bölge radar kubbeleri (`create_route_map_3d_chart`)
+    ve dikey irtifa/arazi kesiti (`create_altitude_profile_chart`) grafiklerinin
+    her üç strateji için de geçerli Plotly Figure nesneleri ürettiğini doğrular.
+    """
+    sim = MissionSimulator()
+    sim.run_simulation_tick(auto_lifecycle=True, step_distance_km=25.0)
+    all_plans = sim.navigation_system.compare_all_strategies(
+        sim.start_point, sim.destination_point, sim.restricted_zones
+    )
+
+    fig_3d = create_route_map_3d_chart(
+        route_plans=all_plans,
+        restricted_zones=sim.restricted_zones,
+        active_strategy_name="RADAR_EVASION",
+        uav_position=sim.uav_position,
+        current_altitude_m=sim.flight_controller.altitude_m,
+        flight_trail=sim.flight_trail,
+    )
+    assert isinstance(fig_3d, go.Figure)
+    assert len(fig_3d.data) >= 8
+
+    for plan in all_plans:
+        fig_vsd = create_altitude_profile_chart(
+            route_plan=plan,
+            distance_traveled_km=sim.route_distance_traveled_km,
+            current_altitude_m=sim.flight_controller.altitude_m,
+            current_phase_name=sim.flight_controller.current_phase_name,
+        )
+        assert isinstance(fig_vsd, go.Figure)
+        assert len(fig_vsd.data) == 5
