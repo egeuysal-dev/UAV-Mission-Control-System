@@ -8,6 +8,8 @@ from ui.components.charts import (
     create_route_map_3d_chart,
     create_sensor_polar_and_cartesian_charts,
     create_telemetry_stage_size_chart,
+    create_uav_blueprint_chart,
+    create_uav_capability_radar_chart,
     create_weight_breakdown_chart,
 )
 from ui.components.theme import (
@@ -24,6 +26,8 @@ __all__ = [
     "create_route_map_3d_chart",
     "create_sensor_polar_and_cartesian_charts",
     "create_telemetry_stage_size_chart",
+    "create_uav_blueprint_chart",
+    "create_uav_capability_radar_chart",
     "create_weight_breakdown_chart",
     "inject_custom_css",
     "render_pattern_header",

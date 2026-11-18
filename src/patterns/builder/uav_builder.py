@@ -98,6 +98,83 @@ class UAVPlatform:
         burn_rate_kg_per_hr = max(18.0, self.total_weight_kg * 0.025)
         return round(effective_fuel / burn_rate_kg_per_hr, 1)
 
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """
+        Öneri D — İHA Mühendislik ve Aerodinamik Performans Analizi:
+        Yapılandırılan platformun ağırlık, yakıt, sensör güç tüketimi, veri bağı
+        menzili ve harici yük sürüklemesine göre uçuş zarfı metriklerini ve
+        5 eksenli yetenek puanlarını (0-100) hesaplar.
+        """
+        is_strike = self.mission_type == "STRIKE"
+        burn_rate_kg_hr = round(max(18.0, self.total_weight_kg * 0.025), 1)
+        endurance_hr = self.estimated_endurance_hours
+
+        # Harici yük sayısı arttıkça parazitik sürükleme nedeniyle seyir hızı hafif düşer
+        base_cruise_kts = 160.0 if is_strike else 118.0
+        drag_penalty_kts = len(self.payloads) * 3.5
+        cruise_speed_kts = round(max(85.0, base_cruise_kts - drag_penalty_kts), 1)
+        cruise_speed_kmh = cruise_speed_kts * 1.852
+
+        max_ferry_range_km = round(endurance_hr * cruise_speed_kmh, 0)
+        comms_range_km = self.comms_module.range_km if self.comms_module else 0.0
+        fuel_combat_radius_km = round(max_ferry_range_km * 0.42, 0)
+        effective_combat_radius_km = (
+            round(min(comms_range_km, fuel_combat_radius_km), 0)
+            if comms_range_km > 0
+            else 0.0
+        )
+
+        sensor_power_watts = round(sum(s.power_watts for s in self.sensors), 0)
+        mtow_ratio = (
+            self.total_weight_kg / self.max_takeoff_weight_kg
+            if self.max_takeoff_weight_kg > 0
+            else 1.0
+        )
+        base_takeoff_m = 620.0 if is_strike else 450.0
+        takeoff_roll_m = round(base_takeoff_m * (0.65 + 0.65 * mtow_ratio), 0)
+
+        base_ceiling_m = 11500.0 if is_strike else 9200.0
+        service_ceiling_m = round(max(4500.0, base_ceiling_m * (1.18 - 0.30 * mtow_ratio)), 0)
+
+        # 5 Eksenli Yetenek Radar Puanları (0 - 100)
+        endurance_score = round(min(100.0, (endurance_hr / 24.0) * 100.0), 1)
+        range_score = round(min(100.0, (effective_combat_radius_km / 1200.0) * 100.0), 1)
+        isr_score = round(
+            min(
+                100.0,
+                len(self.sensors) * 28.0
+                + (16.0 if any("RADAR" in s.sensor_type for s in self.sensors) else 0.0),
+            ),
+            1,
+        )
+        max_payload_ref = 900.0 if is_strike else 250.0
+        payload_score = round(
+            min(100.0, (self.payloads_weight_kg / max_payload_ref) * 100.0), 1
+        )
+        agility_score = round(
+            min(100.0, max(10.0, (1.0 - (mtow_ratio - 0.55)) * 90.0)), 1
+        )
+
+        return {
+            "burn_rate_kg_hr": burn_rate_kg_hr,
+            "endurance_hours": endurance_hr,
+            "cruise_speed_kts": cruise_speed_kts,
+            "max_ferry_range_km": max_ferry_range_km,
+            "comms_range_km": comms_range_km,
+            "combat_radius_km": effective_combat_radius_km,
+            "sensor_power_watts": sensor_power_watts,
+            "takeoff_roll_m": takeoff_roll_m,
+            "service_ceiling_m": service_ceiling_m,
+            "mtow_usage_pct": round(mtow_ratio * 100.0, 1),
+            "radar_scores": {
+                "Havada Kalış (Endurance)": endurance_score,
+                "Harekât Yarıçapı (Range)": range_score,
+                "Keşif & Sensör (ISR)": isr_score,
+                "Faydalı Yük (Payload)": payload_score,
+                "Çeviklik & Marj (Agility)": agility_score,
+            },
+        }
+
     def validate(self) -> Tuple[bool, List[str]]:
         """
         İHA yapılandırmasının tüm mühendislik ve görev kısıtlarına uygunluğunu denetler.

@@ -17,6 +17,8 @@ from ui.components.charts import (
     create_route_map_3d_chart,
     create_sensor_polar_and_cartesian_charts,
     create_telemetry_stage_size_chart,
+    create_uav_blueprint_chart,
+    create_uav_capability_radar_chart,
     create_weight_breakdown_chart,
 )
 
@@ -193,3 +195,27 @@ def test_3d_route_map_and_altitude_profile_charts() -> None:
         )
         assert isinstance(fig_vsd, go.Figure)
         assert len(fig_vsd.data) == 5
+
+
+def test_uav_performance_metrics_blueprint_and_capability_radar_charts() -> None:
+    """
+    Öneri D: UAVPlatform.get_performance_metrics(), 2B teknik İHA gövde/istasyon şeması
+    (`create_uav_blueprint_chart`) ve 5 eksenli yetenek radar grafiğinin
+    (`create_uav_capability_radar_chart`) hem RECON hem STRIKE için doğru çalıştığını doğrular.
+    """
+    sim = MissionSimulator()
+    for preset in ("STD_RECON", "HEAVY_STRIKE"):
+        platform = sim.set_preset_platform(preset)
+        perf = platform.get_performance_metrics()
+        assert perf["endurance_hours"] > 0
+        assert perf["combat_radius_km"] > 0
+        assert perf["cruise_speed_kts"] > 0
+        assert len(perf["radar_scores"]) == 5
+
+        fig_bp = create_uav_blueprint_chart(platform)
+        assert isinstance(fig_bp, go.Figure)
+        assert len(fig_bp.data) >= 6
+
+        fig_rad = create_uav_capability_radar_chart(platform)
+        assert isinstance(fig_rad, go.Figure)
+        assert len(fig_rad.data) == 2

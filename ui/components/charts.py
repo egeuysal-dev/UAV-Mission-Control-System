@@ -230,6 +230,259 @@ def create_weight_breakdown_chart(platform: UAVPlatform) -> go.Figure:
     return fig
 
 
+def create_uav_blueprint_chart(platform: UAVPlatform) -> go.Figure:
+    """
+    Öneri D — 2B Teknik İHA Gövde & Kanat İstasyon Şeması (Top-Down CAD Blueprint):
+    İHA'nın üstten teknik görünümü üzerinde burun/gövde sensör yuvalarını (`BAY 1..3`),
+    SATCOM/Veri Bağı kubbesini ve kanat altı faydalı yük istasyonlarını (`HP 1..4`)
+    canlı olarak işaretler.
+    """
+    fig = go.Figure()
+    is_strike = platform.mission_type == "STRIKE"
+
+    # 1. İHA Üstten Gövde ve Kanat Silüeti (CAD Poligonu)
+    airframe_x = [
+        0.0, 0.55, 0.78, 0.85, 3.2, 3.4, 9.6, 9.8, 0.85, 0.72,
+        2.6, 2.5, 0.35, 0.0, -0.35, -2.5, -2.6, -0.72, -0.85,
+        -9.8, -9.6, -3.4, -3.2, -0.85, -0.78, -0.55, 0.0,
+    ]
+    airframe_y = [
+        6.2, 5.1, 3.6, 1.8, 1.35, 1.55, 0.35, -0.45, -0.25, -3.6,
+        -4.8, -5.5, -4.6, -5.2, -4.6, -5.5, -4.8, -3.6, -0.25,
+        -0.45, 0.35, 1.55, 1.35, 1.8, 3.6, 5.1, 6.2,
+    ]
+    outline_color = "#38bdf8" if is_strike else "#10b981"
+    fill_rgba = "rgba(56, 189, 248, 0.14)" if is_strike else "rgba(16, 185, 129, 0.14)"
+
+    fig.add_trace(
+        go.Scatter(
+            x=airframe_x,
+            y=airframe_y,
+            fill="toself",
+            fillcolor=fill_rgba,
+            line=dict(color=outline_color, width=2.2),
+            name=f"Gövde Silüeti ({platform.airframe_type})",
+            hoverinfo="name",
+        )
+    )
+
+    # Gövde merkez eksen çizgisi
+    fig.add_trace(
+        go.Scatter(
+            x=[0.0, 0.0],
+            y=[-5.6, 6.6],
+            mode="lines",
+            line=dict(color="#334155", width=1, dash="dash"),
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+
+    # 2. Haberleşme Kubbesi (SATCOM / Data Link Dome)
+    has_comms = platform.comms_module is not None
+    comms_label = (
+        f"📡 {platform.comms_module.name[:24]} ({platform.comms_module.range_km:.0f} km)"
+        if platform.comms_module
+        else "❌ HABERLEŞME MODÜLÜ EKSİK"
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[0.0],
+            y=[3.8],
+            mode="markers+text",
+            name="Haberleşme Yuvası (SATCOM/LOS)",
+            text=[comms_label],
+            textposition="top center",
+            textfont=dict(size=10, color="#c084fc" if has_comms else "#ef4444"),
+            marker=dict(
+                size=14,
+                color="#a855f7" if has_comms else "#ef4444",
+                symbol="hexagon",
+                line=dict(width=1.5, color="#ffffff"),
+            ),
+        )
+    )
+
+    # 3. Sensör Yuvaları (BAY-1 Burun Taret, BAY-2 Gövde Altı Radar, BAY-3 Gövde İçi SIGINT)
+    bay_coords = [
+        (0.0, 5.4, "BAY-1 (Burun EO/IR)"),
+        (0.0, 1.9, "BAY-2 (Gövde Radarı)"),
+        (0.0, -1.6, "BAY-3 (Görev Sensörü)"),
+    ]
+    for idx, (bx, by, bay_title) in enumerate(bay_coords):
+        if idx < len(platform.sensors):
+            sensor = platform.sensors[idx]
+            compatible = (
+                not platform.mission_type
+                or platform.mission_type in sensor.compatible_missions
+            )
+            s_color = "#22c55e" if compatible else "#ef4444"
+            s_text = f"🟢 {bay_title}:<br>{sensor.name[:22]} ({sensor.weight_kg:.0f}kg)"
+        else:
+            s_color = "#475569"
+            s_text = f"⚪ {bay_title}: BOŞ"
+
+        fig.add_trace(
+            go.Scatter(
+                x=[bx],
+                y=[by],
+                mode="markers+text",
+                name=bay_title,
+                text=[s_text],
+                textposition="bottom center" if idx == 2 else "middle right",
+                textfont=dict(size=10, color=s_color if s_color != "#475569" else "#94a3b8"),
+                marker=dict(
+                    size=13,
+                    color=s_color,
+                    symbol="circle-dot",
+                    line=dict(width=1.5, color="#ffffff"),
+                ),
+                showlegend=(idx == 0),
+            )
+        )
+
+    # 4. Kanat Altı Faydalı Yük İstasyonları (Hardpoints HP-1..HP-4)
+    hp_definitions = [
+        (-3.6, 0.55, "HP-1 (Sol İç İstasyon)"),
+        (3.6, 0.55, "HP-2 (Sağ İç İstasyon)"),
+        (-6.8, 0.10, "HP-3 (Sol Dış İstasyon)"),
+        (6.8, 0.10, "HP-4 (Sağ Dış İstasyon)"),
+    ]
+    active_hps = hp_definitions[: platform.max_hardpoints]
+
+    for idx, (hx, hy, hp_title) in enumerate(active_hps):
+        if idx < len(platform.payloads):
+            pl = platform.payloads[idx]
+            compatible = (
+                not platform.mission_type
+                or platform.mission_type in pl.compatible_missions
+            )
+            p_color = "#f59e0b" if compatible else "#ef4444"
+            p_text = f"🟧 {hp_title.split()[0]}:<br>{pl.name[:20]}<br>({pl.weight_kg:.0f} kg)"
+        else:
+            p_color = "#334155"
+            p_text = f"⬜ {hp_title.split()[0]}:<br>BOŞ İSTASYON"
+
+        fig.add_trace(
+            go.Scatter(
+                x=[hx],
+                y=[hy],
+                mode="markers+text",
+                name="Kanat İstasyonu (Hardpoint)",
+                text=[p_text],
+                textposition="bottom center",
+                textfont=dict(size=10, color="#fbbf24" if p_color == "#f59e0b" else "#94a3b8"),
+                marker=dict(
+                    size=15,
+                    color=p_color,
+                    symbol="diamond",
+                    line=dict(width=1.5, color="#ffffff"),
+                ),
+                showlegend=(idx == 0),
+            )
+        )
+
+    fig.update_layout(
+        title=(
+            f"📐 2B İHA Gövde & Kanat İstasyon Şeması — {platform.model_name} "
+            f"(Sensör: {len(platform.sensors)}/{platform.max_sensor_slots} | "
+            f"İstasyon: {len(platform.payloads)}/{platform.max_hardpoints})"
+        ),
+        xaxis=dict(
+            title="Kanat Açıklığı Ekseni (Metre)",
+            range=[-11.5, 11.5],
+            gridcolor=_GRID_COLOR,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title="Gövde Boyu Ekseni (Metre)",
+            range=[-6.8, 7.4],
+            gridcolor=_GRID_COLOR,
+            scaleanchor="x",
+            scaleratio=1,
+            zeroline=False,
+        ),
+        height=390,
+        margin=dict(l=20, r=20, t=48, b=25),
+        paper_bgcolor=_PAPER_BG,
+        plot_bgcolor=_DARK_BG,
+        font=dict(color=_TEXT_COLOR),
+        showlegend=False,
+    )
+    return fig
+
+
+def create_uav_capability_radar_chart(platform: UAVPlatform) -> go.Figure:
+    """
+    Öneri D — 5 Eksenli Platform Yetenek Radar Grafiği (`Scatterpolar`):
+    Yapılandırılan İHA'nın Havada Kalış, Harekât Yarıçapı, Keşif/Sensör (ISR),
+    Faydalı Yük ve Çeviklik/Ağırlık Marjı puanlarını (0-100) görselleştirir.
+    """
+    perf = platform.get_performance_metrics()
+    scores_dict = perf["radar_scores"]
+    categories = list(scores_dict.keys())
+    values = list(scores_dict.values())
+
+    # Poligonu kapatmak için ilk elemanı sona ekle
+    cat_closed = categories + [categories[0]]
+    val_closed = values + [values[0]]
+
+    # Referans profil (RECON vs STRIKE dengeli referans)
+    ref_vals = (
+        [65.0, 70.0, 75.0, 80.0, 60.0]
+        if platform.mission_type == "STRIKE"
+        else [85.0, 65.0, 85.0, 45.0, 75.0]
+    )
+    ref_closed = ref_vals + [ref_vals[0]]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatterpolar(
+            r=ref_closed,
+            theta=cat_closed,
+            name=f"Sınıf Referans Profili ({platform.mission_type})",
+            line=dict(color="#64748b", width=2, dash="dot"),
+            fill="toself",
+            fillcolor="rgba(100, 116, 139, 0.12)",
+        )
+    )
+    fig.add_trace(
+        go.Scatterpolar(
+            r=val_closed,
+            theta=cat_closed,
+            name=platform.model_name or "Aktif Taslak",
+            line=dict(color="#06b6d4", width=3),
+            fill="toself",
+            fillcolor="rgba(6, 182, 212, 0.28)",
+            marker=dict(size=8, color="#38bdf8"),
+        )
+    )
+
+    fig.update_layout(
+        title="🕸️ 5 Eksenli Mühendislik ve Görev Yetenek Analizi (0–100 Puan)",
+        polar=dict(
+            bgcolor=_DARK_BG,
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100],
+                gridcolor=_GRID_COLOR,
+                tickfont=dict(size=10, color="#94a3b8"),
+            ),
+            angularaxis=dict(
+                gridcolor=_GRID_COLOR,
+                linecolor="#334155",
+                tickfont=dict(size=11, color=_TEXT_COLOR),
+            ),
+        ),
+        height=390,
+        margin=dict(l=40, r=40, t=50, b=30),
+        paper_bgcolor=_PAPER_BG,
+        font=dict(color=_TEXT_COLOR),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.18, xanchor="center", x=0.5),
+    )
+    return fig
+
+
 def create_sensor_polar_and_cartesian_charts(
     targets: Sequence[TargetData],
 ) -> Tuple[go.Figure, go.Figure]:

@@ -18,7 +18,11 @@ from src.patterns.builder import (
     StrikeUAVBuilder,
 )
 from src.simulation.mission_simulator import MissionSimulator
-from ui.components.charts import create_weight_breakdown_chart
+from ui.components.charts import (
+    create_uav_blueprint_chart,
+    create_uav_capability_radar_chart,
+    create_weight_breakdown_chart,
+)
 from ui.components.theme import render_pattern_header
 
 
@@ -109,6 +113,7 @@ def render_uav_config_page(sim: MissionSimulator) -> None:
                 try:
                     built_uav = builder.build()
                     sim.active_platform = built_uav
+                    sim.current_fuel_kg = built_uav.fuel_weight_kg
                     sim.transmit_current_telemetry("UAV_RECONFIGURED")
                     st.success(
                         f"✅ `{built_uav.model_name}` başarıyla doğrulandı, inşa edildi ve aktif simülasyona atandı!"
@@ -121,12 +126,13 @@ def render_uav_config_page(sim: MissionSimulator) -> None:
         with col_preview:
             st.subheader("2. Canlı Taslak Analizi ve Doğrulama")
             is_valid, validation_errors = draft.validate()
+            perf = draft.get_performance_metrics()
 
             m1, m2, m3 = st.columns(3)
             m1.metric(
                 "Toplam Ağırlık",
                 f"{draft.total_weight_kg:.1f} kg",
-                f"MTOW: {draft.max_takeoff_weight_kg:.0f} kg",
+                f"MTOW: {draft.max_takeoff_weight_kg:.0f} kg (%{perf['mtow_usage_pct']:.0f})",
             )
             m2.metric(
                 "Kalan Ağırlık Marjı",
@@ -136,7 +142,24 @@ def render_uav_config_page(sim: MissionSimulator) -> None:
             m3.metric(
                 "Tahmini Havada Kalış",
                 f"{draft.estimated_endurance_hours:.1f} Saat",
-                f"İstasyon: {len(draft.payloads)}/{draft.max_hardpoints}",
+                f"Tüketim: {perf['burn_rate_kg_hr']:.1f} kg/sa",
+            )
+
+            p1, p2, p3 = st.columns(3)
+            p1.metric(
+                "Harekât Yarıçapı",
+                f"{perf['combat_radius_km']:.0f} km",
+                f"Menzil: {perf['max_ferry_range_km']:.0f} km",
+            )
+            p2.metric(
+                "Optimal Seyir Hızı",
+                f"{perf['cruise_speed_kts']:.0f} knots",
+                f"Tavan: {perf['service_ceiling_m']:.0f} m",
+            )
+            p3.metric(
+                "Kalkış Koşusu / Güç",
+                f"{perf['takeoff_roll_m']:.0f} m",
+                f"Sensör Gücü: {perf['sensor_power_watts']:.0f} W",
             )
 
             fig = create_weight_breakdown_chart(draft)
@@ -152,6 +175,16 @@ def render_uav_config_page(sim: MissionSimulator) -> None:
             with st.expander("📄 UAVPlatform.to_summary_dict() Çıktısını İncele", expanded=False):
                 st.json(draft.to_summary_dict())
 
+        st.divider()
+        st.subheader("3. 📐 Teknik İHA Gövde & İstasyon Şeması (CAD Blueprint) ve 5 Eksenli Yetenek Analizi")
+        bp_col, rad_col = st.columns([3, 2])
+        with bp_col:
+            bp_fig = create_uav_blueprint_chart(draft)
+            st.plotly_chart(bp_fig, use_container_width=True, key="draft_blueprint_chart")
+        with rad_col:
+            rad_fig = create_uav_capability_radar_chart(draft)
+            st.plotly_chart(rad_fig, use_container_width=True, key="draft_radar_chart")
+
     with tab_director:
         st.subheader("🎖️ MissionPrepDirector — Standart Görev Reçeteleri")
         st.write(
@@ -161,19 +194,33 @@ def render_uav_config_page(sim: MissionSimulator) -> None:
         d_col1, d_col2, d_col3, d_col4 = st.columns(4)
         if d_col1.button("🛰️ Standart Keşif (ANKA-R)", use_container_width=True):
             sim.set_preset_platform("STD_RECON")
-            st.success("Standart Keşif İHA'sı (ANKA-R) inşa edildi!")
+            st.rerun()
         if d_col2.button("🌐 Uzun Menzil Keşif (AKSUNGUR-R)", use_container_width=True):
             sim.set_preset_platform("LONG_RECON")
-            st.success("Stratejik Uzun Menzil Keşif İHA'sı inşa edildi!")
+            st.rerun()
         if d_col3.button("⚡ Standart Taktik (AKINCI-S)", use_container_width=True):
             sim.set_preset_platform("STD_STRIKE")
-            st.success("Standart Taktik Görev İHA'sı inşa edildi!")
+            st.rerun()
         if d_col4.button("🛡️ Ağır Görev (AKINCI-B)", use_container_width=True):
             sim.set_preset_platform("HEAVY_STRIKE")
-            st.success("Ağır Görev İHA'sı inşa edildi!")
+            st.rerun()
 
-        st.markdown("#### Aktif Simülasyon İHA Özeti")
-        st.json(sim.active_platform.to_summary_dict())
+        dir_bp_col, dir_rad_col = st.columns([3, 2])
+        with dir_bp_col:
+            st.plotly_chart(
+                create_uav_blueprint_chart(sim.active_platform),
+                use_container_width=True,
+                key="director_blueprint_chart",
+            )
+        with dir_rad_col:
+            st.plotly_chart(
+                create_uav_capability_radar_chart(sim.active_platform),
+                use_container_width=True,
+                key="director_radar_chart",
+            )
+
+        with st.expander("#### 📄 Aktif Simülasyon İHA Özeti (JSON)", expanded=False):
+            st.json(sim.active_platform.to_summary_dict())
 
     with tab_catalog:
         st.subheader("Sensör Kataloğu")
