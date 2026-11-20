@@ -13,6 +13,7 @@ from ui.components.charts import (
     create_altitude_profile_chart,
     create_avionics_gauges_chart,
     create_flight_dynamics_chart,
+    create_flir_thermal_view_chart,
     create_route_map_2d_chart,
     create_route_map_3d_chart,
     create_sensor_polar_and_cartesian_charts,
@@ -219,3 +220,28 @@ def test_uav_performance_metrics_blueprint_and_capability_radar_charts() -> None
         fig_rad = create_uav_capability_radar_chart(platform)
         assert isinstance(fig_rad, go.Figure)
         assert len(fig_rad.data) == 2
+
+
+def test_ppi_radar_sweep_and_flir_thermal_view_charts() -> None:
+    """
+    Öneri E: Taktik PPI radar tarama hüzmesi (`sweep_angle_deg`) ve sentetik EO/IR
+    termal kamera vizörünün (`create_flir_thermal_view_chart`) hem radar hem termal
+    hedefler için geçerli Plotly Figure nesneleri ürettiğini doğrular.
+    """
+    sim = MissionSimulator()
+    sim.run_simulation_tick()
+    assert len(sim.last_targets) >= 2
+
+    polar_sweep, cart_sweep = create_sensor_polar_and_cartesian_charts(
+        sim.last_targets, sweep_angle_deg=120.0
+    )
+    assert isinstance(polar_sweep, go.Figure)
+    assert isinstance(cart_sweep, go.Figure)
+    assert len(polar_sweep.data) == len(sim.last_targets) + 1
+    assert len(cart_sweep.data) >= len(sim.last_targets) + 3
+
+    for target in sim.last_targets:
+        for pol in ("WHOT", "BHOT"):
+            fig_flir = create_flir_thermal_view_chart(target, polarity=pol)
+            assert isinstance(fig_flir, go.Figure)
+            assert len(fig_flir.data) >= 5

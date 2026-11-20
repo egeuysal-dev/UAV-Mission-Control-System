@@ -485,13 +485,50 @@ def create_uav_capability_radar_chart(platform: UAVPlatform) -> go.Figure:
 
 def create_sensor_polar_and_cartesian_charts(
     targets: Sequence[TargetData],
+    sweep_angle_deg: Optional[float] = None,
 ) -> Tuple[go.Figure, go.Figure]:
     """
-    Adapter Kalıbı: Normalize edilmiş sensör hedeflerini hem 2B Kutupsal Radar
-    ekranında (Azimut ° / Menzil km) hem de 2B Kartezyen düzlemde (Doğu X / Kuzey Y km) çizer.
+    Adapter Kalıbı + Öneri E (Taktik PPI Radar Tarama Ekranı):
+    Normalize edilmiş sensör hedeflerini hem 2B Kutupsal Radar PPI ekranında
+    (Azimut ° / Menzil km, opsiyonel radar tarama hüzmesiyle) hem de 2B Kartezyen
+    taktik düzlemde (Doğu X / Kuzey Y km, mesafe halkaları ve yön vektörleriyle) çizer.
     """
     polar_fig = go.Figure()
     cart_fig = go.Figure()
+
+    # Opsiyonel PPI Radar Tarama Hüzmesi (Phosphor Green Sweep Sector)
+    if sweep_angle_deg is not None:
+        beam_angles = [
+            (sweep_angle_deg - 28.0 + i * 2.8) % 360.0 for i in range(11)
+        ]
+        beam_r = [0.0] + [27.0 for _ in beam_angles] + [0.0]
+        beam_theta = [sweep_angle_deg] + beam_angles + [sweep_angle_deg]
+        polar_fig.add_trace(
+            go.Scatterpolar(
+                r=beam_r,
+                theta=beam_theta,
+                fill="toself",
+                fillcolor="rgba(34, 197, 94, 0.16)",
+                line=dict(color="rgba(34, 197, 94, 0.75)", width=1.5),
+                name=f"📡 PPI Radar Hüzmesi ({sweep_angle_deg:.0f}°)",
+                hoverinfo="name",
+            )
+        )
+
+        # Kartezyen ekran üzerinde 10 km ve 20 km taktik mesafe halkaları
+        ring_thetas = [math.radians(d) for d in range(0, 365, 6)]
+        for ring_km in (10.0, 20.0):
+            cart_fig.add_trace(
+                go.Scatter(
+                    x=[ring_km * math.cos(t) for t in ring_thetas],
+                    y=[ring_km * math.sin(t) for t in ring_thetas],
+                    mode="lines",
+                    line=dict(color="rgba(34, 197, 94, 0.25)", width=1, dash="dot"),
+                    name=f"Menzil Halkası ({ring_km:.0f} km)",
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
 
     # İHA merkez noktası
     cart_fig.add_trace(
@@ -500,7 +537,7 @@ def create_sensor_polar_and_cartesian_charts(
             y=[0.0],
             mode="markers+text",
             name="İHA Merkez Konumu",
-            text=["İHA (0,0)"],
+            text=["🛸 İHA (0,0)"],
             textposition="bottom center",
             marker=dict(size=14, color="#38bdf8", symbol="triangle-up"),
         )
@@ -510,9 +547,20 @@ def create_sensor_polar_and_cartesian_charts(
         "STANAG_4607_POLAR_LEGACY": "#22c55e",
         "VENDOR_EOIR_JSON_V2": "#f97316",
     }
+    symbol_map = {
+        "RADAR_EMITTER": "diamond-cross",
+        "SURFACE_VEHICLE": "square",
+        "AIR_TRACK": "triangle-up",
+        "THERMAL_ANOMALY": "star",
+    }
 
     for t in targets:
-        col = color_map.get(t.sensor_protocol, "#06b6d4")
+        col = (
+            "#ef4444"
+            if t.classification == "RADAR_EMITTER"
+            else color_map.get(t.sensor_protocol, "#06b6d4")
+        )
+        sym = symbol_map.get(t.classification, "diamond")
         label = f"{t.target_id} ({t.classification}, Güven={t.confidence_score:.2f})"
 
         polar_fig.add_trace(
@@ -521,11 +569,29 @@ def create_sensor_polar_and_cartesian_charts(
                 theta=[t.bearing_deg],
                 mode="markers+text",
                 name=label,
-                text=[t.target_id],
+                text=[f"{t.target_id}<br>{t.bearing_deg:.0f}°"],
                 textposition="top center",
-                marker=dict(size=13, color=col, line=dict(width=1.5, color="#ffffff")),
+                marker=dict(
+                    size=13,
+                    color=col,
+                    symbol=sym,
+                    line=dict(width=1.5, color="#ffffff"),
+                ),
             )
         )
+
+        if sweep_angle_deg is not None:
+            # İHA merkezinden hedefe taktik kerteriz/vektör çizgisi
+            cart_fig.add_trace(
+                go.Scatter(
+                    x=[0.0, t.cartesian_x_km],
+                    y=[0.0, t.cartesian_y_km],
+                    mode="lines",
+                    line=dict(color=col, width=1.2, dash="dot"),
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
 
         cart_fig.add_trace(
             go.Scatter(
@@ -533,48 +599,206 @@ def create_sensor_polar_and_cartesian_charts(
                 y=[t.cartesian_y_km],
                 mode="markers+text",
                 name=label,
-                text=[f"{t.target_id}<br>({t.altitude_m:.0f}m)"],
+                text=[f"{t.target_id}<br>({t.altitude_m:.0f}m | %{t.confidence_score*100:.0f})"],
                 textposition="top center",
-                marker=dict(size=13, color=col, symbol="diamond"),
+                marker=dict(
+                    size=13,
+                    color=col,
+                    symbol=sym,
+                    line=dict(width=1.5, color="#ffffff"),
+                ),
             )
         )
 
     polar_fig.update_layout(
-        title="2B Kutupsal Sensör Ekranı (Derece / km)",
+        title="📡 Taktik PPI Kutupsal Radar Ekranı (Azimut ° / Menzil km)",
         polar=dict(
-            bgcolor=_DARK_BG,
+            bgcolor="#071318",
             angularaxis=dict(
                 direction="clockwise",
                 rotation=90,
-                gridcolor=_GRID_COLOR,
-                linecolor="#334155",
+                gridcolor="#134e4a",
+                linecolor="#0d9488",
             ),
             radialaxis=dict(
                 range=[0, 28],
-                gridcolor=_GRID_COLOR,
+                gridcolor="#134e4a",
                 ticksuffix=" km",
             ),
         ),
-        height=380,
+        height=400,
         margin=dict(l=30, r=30, t=50, b=30),
         paper_bgcolor=_PAPER_BG,
         font=dict(color=_TEXT_COLOR),
         showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
     )
 
     cart_fig.update_layout(
-        title="2B Kartezyen Normalize Hedef Haritası (Doğu X / Kuzey Y)",
+        title="🎯 2B Kartezyen Normalize Hedef Haritası (Doğu X / Kuzey Y)",
         xaxis=dict(title="Doğu - Batı X (km)", range=[-28, 28], gridcolor=_GRID_COLOR, zerolinecolor="#475569"),
-        yaxis=dict(title="Kuzey - Güney Y (km)", range=[-28, 28], gridcolor=_GRID_COLOR, zerolinecolor="#475569"),
-        height=380,
+        yaxis=dict(
+            title="Kuzey - Güney Y (km)",
+            range=[-28, 28],
+            gridcolor=_GRID_COLOR,
+            zerolinecolor="#475569",
+            scaleanchor="x",
+            scaleratio=1,
+        ),
+        height=400,
         margin=dict(l=30, r=30, t=50, b=30),
         paper_bgcolor=_PAPER_BG,
         plot_bgcolor=_DARK_BG,
         font=dict(color=_TEXT_COLOR),
         showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
     )
 
     return polar_fig, cart_fig
+
+
+def create_flir_thermal_view_chart(
+    target: TargetData,
+    polarity: str = "WHOT",
+) -> go.Figure:
+    """
+    Öneri E — Sentetik EO/IR Termal Kamera Vizörü (FLIR Targeting Pod HUD):
+    Seçilen `TargetData` hedefi için 2B kızılötesi ısı imzası matrisi (`Heatmap`),
+    lazer nişangâh artı kılı (crosshair reticle), kilitlenme kutusu (tracking box)
+    ve ekran üstü telemetri (OSD) verilerini çizer.
+    """
+    grid_coords = [round(-15.0 + i * 1.0, 1) for i in range(31)]
+
+    # Ham veriden Kelvin sıcaklığı varsa oku, yoksa güven skorundan sentetik pik sıcaklık üret
+    peak_temp_c = 78.0
+    if isinstance(target.raw_payload, dict) and "hotspot" in target.raw_payload:
+        raw_k = float(target.raw_payload["hotspot"].get("peak_temp_kelvin", 351.15))
+        peak_temp_c = round(raw_k - 273.15, 1)
+    else:
+        peak_temp_c = round(35.0 + target.confidence_score * 55.0, 1)
+
+    ambient_temp_c = 18.0
+    sigma = 2.6 if target.classification != "RADAR_EMITTER" else 3.2
+
+    z_matrix: List[List[float]] = []
+    for y_val in grid_coords:
+        row: List[float] = []
+        for x_val in grid_coords:
+            dist_sq = (x_val ** 2) + (y_val ** 2)
+            # Merkez ısı çekirdeği + ikincil egzoz/motor uzantısı + hafif arka plan dokusu
+            core_heat = (peak_temp_c - ambient_temp_c) * math.exp(-dist_sq / (2.0 * (sigma ** 2)))
+            plume_heat = (
+                (peak_temp_c - ambient_temp_c)
+                * 0.35
+                * math.exp(-(((x_val - 1.8) ** 2) + ((y_val + 1.2) ** 2)) / 6.5)
+            )
+            bg_texture = 1.8 * math.sin(x_val * 0.65) * math.cos(y_val * 0.65)
+            row.append(round(ambient_temp_c + core_heat + plume_heat + bg_texture, 2))
+        z_matrix.append(row)
+
+    colorscale = "Hot" if polarity == "WHOT" else "Greys"
+    reticle_color = "#22c55e" if target.confidence_score >= 0.75 else "#f59e0b"
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Heatmap(
+            x=grid_coords,
+            y=grid_coords,
+            z=z_matrix,
+            colorscale=colorscale,
+            colorbar=dict(title="°C", thickness=14),
+            hovertemplate="Azimut Sapma: %{x} mrad<br>Elevasyon Sapma: %{y} mrad<br>Sıcaklık: %{z:.1f} °C<extra></extra>",
+        )
+    )
+
+    # FLIR Nişangâh Artı Kılı (Crosshair) ve Kilitlenme Çerçevesi (Lock Box)
+    reticle_segments = [
+        ([-12.0, -2.5], [0.0, 0.0]),
+        ([2.5, 12.0], [0.0, 0.0]),
+        ([0.0, 0.0], [-12.0, -2.5]),
+        ([0.0, 0.0], [2.5, 12.0]),
+        # Köşe kilit braketleri
+        ([-4.2, -4.2, -2.6], [2.6, 4.2, 4.2]),
+        ([2.6, 4.2, 4.2], [4.2, 4.2, 2.6]),
+        ([-4.2, -4.2, -2.6], [-2.6, -4.2, -4.2]),
+        ([2.6, 4.2, 4.2], [-4.2, -4.2, -2.6]),
+    ]
+    for rx, ry in reticle_segments:
+        fig.add_trace(
+            go.Scatter(
+                x=rx,
+                y=ry,
+                mode="lines",
+                line=dict(color=reticle_color, width=2.2),
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+
+    # FLIR HUD Ekran Üstü Telemetri (OSD Annotations)
+    osd_annotations = [
+        dict(
+            x=-14.2,
+            y=13.8,
+            text=f"<b>FLIR {polarity} | 4.0X | {target.sensor_protocol[:16]}</b>",
+            showarrow=False,
+            xanchor="left",
+            font=dict(color=reticle_color, size=11, family="Consolas, monospace"),
+            bgcolor="rgba(9, 13, 22, 0.72)",
+        ),
+        dict(
+            x=14.2,
+            y=13.8,
+            text=f"<b>LOCK: {target.target_id} [{target.classification}]</b>",
+            showarrow=False,
+            xanchor="right",
+            font=dict(color=reticle_color, size=11, family="Consolas, monospace"),
+            bgcolor="rgba(9, 13, 22, 0.72)",
+        ),
+        dict(
+            x=-14.2,
+            y=-13.8,
+            text=f"<b>LRF: {target.distance_km:.2f} KM | ALT: {target.altitude_m:.0f} M | T-MAX: {peak_temp_c:.1f}°C</b>",
+            showarrow=False,
+            xanchor="left",
+            font=dict(color=reticle_color, size=11, family="Consolas, monospace"),
+            bgcolor="rgba(9, 13, 22, 0.72)",
+        ),
+        dict(
+            x=14.2,
+            y=-13.8,
+            text=f"<b>AZ: {target.bearing_deg:05.1f}° | CONF: %{target.confidence_score*100:.0f}</b>",
+            showarrow=False,
+            xanchor="right",
+            font=dict(color=reticle_color, size=11, family="Consolas, monospace"),
+            bgcolor="rgba(9, 13, 22, 0.72)",
+        ),
+    ]
+
+    fig.update_layout(
+        title=f"🔭 EO/IR Termal Kamera Nişangâh Vizörü (FLIR HUD — {target.target_id})",
+        xaxis=dict(
+            title="Gimbal Azimut Sapması (mrad)",
+            range=[-15, 15],
+            showgrid=False,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title="Gimbal Elevasyon Sapması (mrad)",
+            range=[-15, 15],
+            showgrid=False,
+            zeroline=False,
+            scaleanchor="x",
+            scaleratio=1,
+        ),
+        annotations=osd_annotations,
+        height=400,
+        margin=dict(l=25, r=25, t=50, b=30),
+        paper_bgcolor=_PAPER_BG,
+        plot_bgcolor=_DARK_BG,
+        font=dict(color=_TEXT_COLOR),
+    )
+    return fig
 
 
 def create_telemetry_stage_size_chart(packet: TelemetryPacketResult) -> go.Figure:
