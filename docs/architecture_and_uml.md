@@ -324,16 +324,3 @@ classDiagram
     RoutePlanningStrategy <|-- RadarEvasionStrategy
     RoutePlanningStrategy <|-- LoiteringSearchStrategy
 ```
-
----
-
-## 5. Mantıklı Geliştirme Sırası (Yol Haritası)
-
-1. **Aşama 1 — Proje Analizi ve Mimari (Tamamlandı):** Gereksinim analizi, klasör yapısı, UML diyagramları, merkezi log altyapısı, minimal uygulama iskeleti ve duman testleri.
-2. **Aşama 2 — Builder Kalıbı:** İHA platformu (`UAVPlatform`) veri modeli, `UAVConfigurationBuilder`, `StrikeUAVBuilder`, `ReconUAVBuilder`, `MissionPrepDirector`, ağırlık/uyumluluk doğrulamaları ve birim testleri. (Diğer modüllerin ihtiyaç duyduğu İHA nesnesini ürettiği için ilk sırada geliştirilir.)
-3. **Aşama 3 — Adapter Kalıbı:** Sentetik sensörler (`LegacyStanagRadarSDK`, `VendorThermalDevice`), adaptörler (`StanagRadarAdapter`, `ThermalCameraAdapter`), `TargetSensor` arayüzü ve `MissionComputer` entegrasyonu + birim testleri.
-4. **Aşama 4 — Decorator Kalıbı:** `TelemetryChannel`, `BaseRadioChannel`, `TelemetryChannelDecorator` ve `AesEncryptionDecorator` (Fernet/AES kütüphanesi ile dinamik anahtarlı), `CompressionDecorator` (zlib + base64), `AntiJammingDecorator` (temsili CRC/FEC paket koruma simülasyonu) + birim testleri.
-5. **Aşama 5 — State Kalıbı:** `FlightController`, `FlightPhaseState` ve 5 uçuş fazı (`PreflightIdleState`, `TakeOffState`, `CruiseState`, `CombatState`, `EmergencyReturnState`) geçiş kuralları, geçersiz komut reddi ve acil durum (Failsafe) davranışları + birim testleri.
-6. **Aşama 6 — Strategy Kalıbı:** 2B sentetik koordinat/kısıtlı bölge modelleri, `NavigationSystem`, `RoutePlanningStrategy` ve 3 algoritma (`ShortestPathStrategy`, `RadarEvasionStrategy`, `LoiteringSearchStrategy`) + rota karşılaştırma metrikleri ve birim testleri.
-7. **Aşama 7 — Görsel Arayüz (Streamlit + Plotly):** Modern koyu temalı simülasyon kontrol paneli (7 ekran: Dashboard, UAV Configuration, Sensor Integration, Telemetry System, Flight Controller, Navigation, Design Patterns).
-8. **Aşama 8 — Test ve Dokümantasyon:** Uçtan uca entegrasyon testleri, son dokümantasyon güncellemeleri ve sistem doğrulaması.
