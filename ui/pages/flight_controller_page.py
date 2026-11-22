@@ -12,6 +12,7 @@ from src.simulation.mission_simulator import MissionSimulator
 from ui.components.charts import (
     create_avionics_gauges_chart,
     create_flight_dynamics_chart,
+    create_state_machine_graph_chart,
 )
 from ui.components.theme import render_pattern_header
 
@@ -48,6 +49,10 @@ def render_flight_controller_page(sim: MissionSimulator) -> None:
     st.markdown("#### 🎛️ Anlık Kokpit Uçuş Kadranları (State Değişimlerine Duyarlı PFD)")
     pfd_fig = create_avionics_gauges_chart(sim.get_hud_telemetry())
     st.plotly_chart(pfd_fig, use_container_width=True)
+
+    # Öneri G: Canlı Vurgulanan Durum Makinesi (State Machine) Diyagramı
+    sm_fig = create_state_machine_graph_chart(fc)
+    st.plotly_chart(sm_fig, use_container_width=True)
 
     col_cmd, col_rules = st.columns([3, 2])
 

@@ -39,6 +39,7 @@ def render_app() -> None:
         "simulator" not in st.session_state
         or not hasattr(st.session_state["simulator"], "get_hud_telemetry")
         or not hasattr(st.session_state["simulator"], "uav_position")
+        or not hasattr(st.session_state["simulator"], "run_tactical_scenario")
     ):
         st.session_state["simulator"] = MissionSimulator()
 

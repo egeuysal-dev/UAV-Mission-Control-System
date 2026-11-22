@@ -18,6 +18,7 @@ from ui.components.charts import (
     create_route_map_2d_chart,
     create_route_map_3d_chart,
     create_sensor_polar_and_cartesian_charts,
+    create_state_machine_graph_chart,
     create_telemetry_stage_size_chart,
     create_uav_blueprint_chart,
     create_uav_capability_radar_chart,
@@ -270,3 +271,37 @@ def test_rf_spectrum_analyzer_chart() -> None:
     )
     assert isinstance(fig_clean, go.Figure)
     assert len(fig_clean.data) == 1
+
+
+def test_state_machine_graph_tactical_scenarios_and_report_exports() -> None:
+    """
+    Öneri G: Canlı Durum Makinesi diyagramının (`create_state_machine_graph_chart`),
+    3 hazır taktik senaryonun (`run_tactical_scenario`) ve JSON/CSV görev sonu
+    raporu dışa aktarımının eksiksiz çalıştığını doğrular.
+    """
+    sim = MissionSimulator()
+
+    res1 = sim.run_tactical_scenario("RECON_PATROL")
+    assert res1["active_strategy"] == "LOITERING_SEARCH"
+    assert sim.active_platform.mission_type == "RECON"
+
+    res2 = sim.run_tactical_scenario("STRIKE_RADAR_EVASION")
+    assert res2["active_strategy"] == "RADAR_EVASION"
+    assert sim.active_platform.mission_type == "STRIKE"
+
+    res3 = sim.run_tactical_scenario("EW_JAMMING_FAILSAFE_RTB")
+    assert res3["flight_phase"] == "EMERGENCY_RETURN"
+
+    fig_sm = create_state_machine_graph_chart(sim.flight_controller)
+    assert isinstance(fig_sm, go.Figure)
+    assert len(fig_sm.data) >= 6
+
+    report = sim.export_mission_report_dict()
+    assert "hud_telemetry" in report
+    assert "builder_platform" in report
+    assert "state_flight_controller" in report
+    assert "strategy_navigation" in report
+    assert "decorator_telemetry" in report
+
+    csv_text = sim.export_events_csv()
+    assert csv_text.startswith("Timestamp_UTC,Level,Module,Message")

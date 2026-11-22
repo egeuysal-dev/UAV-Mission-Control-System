@@ -1056,6 +1056,186 @@ def create_flight_dynamics_chart(controller: FlightController) -> go.Figure:
     return fig
 
 
+def create_state_machine_graph_chart(controller: FlightController) -> go.Figure:
+    """
+    Öneri G — Canlı Vurgulanan Durum Makinesi (Interactive State Machine Graph):
+    GoF State kalıbındaki 5 uçuş durumunu (`PREFLIGHT_IDLE`, `TAKE_OFF`, `CRUISE`,
+    `COMBAT`, `EMERGENCY_RETURN`) düğüm-ok grafiği olarak çizer; o an aktif olan
+    durumu ve o durumdan izin verilen geçiş oklarını canlı olarak vurgular.
+    """
+    active_phase = controller.current_phase_name
+    nodes = {
+        "PREFLIGHT_IDLE": (0.0, 2.3, "PREFLIGHT_IDLE\n(Yerde Bekleme)", "#64748b"),
+        "TAKE_OFF": (2.7, 2.3, "TAKE_OFF\n(Kalkış / 600m)", "#0284c7"),
+        "CRUISE": (5.4, 2.3, "CRUISE\n(Seyir / 6000m)", "#10b981"),
+        "COMBAT": (8.1, 2.3, "COMBAT\n(Görev / 4500m)", "#f97316"),
+        "EMERGENCY_RETURN": (4.05, 0.35, "EMERGENCY_RETURN\n(Acil Eve Dönüş RTB)", "#ef4444"),
+    }
+
+    # (source, target, label, is_emergency_edge, curve_y_offset)
+    edges = [
+        ("PREFLIGHT_IDLE", "TAKE_OFF", "TAKE_OFF", False, 0.0),
+        ("TAKE_OFF", "CRUISE", "CLIMB_TO_CRUISE", False, 0.0),
+        ("CRUISE", "COMBAT", "ENTER_MISSION_ZONE", False, 0.25),
+        ("COMBAT", "CRUISE", "EXIT_MISSION_ZONE", False, -0.25),
+        ("CRUISE", "PREFLIGHT_IDLE", "LAND_AND_PARKING", False, 0.72),
+        ("TAKE_OFF", "EMERGENCY_RETURN", "trigger_emergency", True, 0.0),
+        ("CRUISE", "EMERGENCY_RETURN", "trigger_emergency", True, 0.0),
+        ("COMBAT", "EMERGENCY_RETURN", "trigger_emergency", True, 0.0),
+        ("EMERGENCY_RETURN", "PREFLIGHT_IDLE", "LAND_AND_PARKING", False, 0.0),
+    ]
+
+    fig = go.Figure()
+    annotations = []
+
+    for src, dst, lbl, is_emg, y_off in edges:
+        x0, y0, _, _ = nodes[src]
+        x1, y1, _, _ = nodes[dst]
+        is_from_active = src == active_phase
+
+        if is_from_active:
+            edge_color = "#ef4444" if is_emg else "#22c55e"
+            edge_width = 3.2
+        else:
+            edge_color = "rgba(239, 68, 68, 0.32)" if is_emg else "rgba(148, 163, 184, 0.35)"
+            edge_width = 1.6
+
+        if abs(y_off) > 0.01:
+            # Çift yönlü veya uzun dönüş okları için 3 noktalı kavisli çizgi
+            xm = (x0 + x1) / 2.0
+            ym = (y0 + y1) / 2.0 + y_off
+            fig.add_trace(
+                go.Scatter(
+                    x=[x0, xm, x1],
+                    y=[y0, ym, y1],
+                    mode="lines",
+                    line=dict(
+                        color=edge_color,
+                        width=edge_width,
+                        shape="spline",
+                        dash="dash" if is_emg else "solid",
+                    ),
+                    showlegend=False,
+                    hoverinfo="text",
+                    hovertext=f"{src} ➡️ {dst} ({lbl})",
+                )
+            )
+            annotations.append(
+                dict(
+                    x=xm,
+                    y=ym + (0.14 if y_off > 0 else -0.14),
+                    text=f"<b>{lbl}</b>" if is_from_active else lbl,
+                    showarrow=False,
+                    font=dict(
+                        size=9.5 if is_from_active else 8.5,
+                        color="#86efac" if (is_from_active and not is_emg) else ("#fca5a5" if is_emg else "#94a3b8"),
+                    ),
+                )
+            )
+        else:
+            # Düz yönlü ok (düğüm sınırlarından biraz içeride başlat/bitir)
+            dx = x1 - x0
+            dy = y1 - y0
+            dist = max(0.01, math.hypot(dx, dy))
+            ux, uy = dx / dist, dy / dist
+            ax, ay = x0 + ux * 0.58, y0 + uy * 0.32
+            bx, by = x1 - ux * 0.58, y1 - uy * 0.32
+
+            annotations.append(
+                dict(
+                    x=bx,
+                    y=by,
+                    ax=ax,
+                    ay=ay,
+                    xref="x",
+                    yref="y",
+                    axref="x",
+                    ayref="y",
+                    showarrow=True,
+                    arrowhead=3,
+                    arrowsize=1.25,
+                    arrowwidth=edge_width,
+                    arrowcolor=edge_color,
+                )
+            )
+            annotations.append(
+                dict(
+                    x=(ax + bx) / 2.0,
+                    y=(ay + by) / 2.0 + (0.15 if not is_emg else -0.08),
+                    text=f"<b>{lbl}</b>" if is_from_active else lbl,
+                    showarrow=False,
+                    font=dict(
+                        size=9.5 if is_from_active else 8.5,
+                        color="#86efac" if (is_from_active and not is_emg) else ("#fca5a5" if is_emg else "#94a3b8"),
+                    ),
+                )
+            )
+
+    # Durum Düğümlerini (State Nodes) Çiz
+    for phase_key, (nx, ny, nlabel, base_col) in nodes.items():
+        is_active = phase_key == active_phase
+        if is_active:
+            # Aktif durum için dış parlama halkası (Halo)
+            fig.add_trace(
+                go.Scatter(
+                    x=[nx],
+                    y=[ny],
+                    mode="markers",
+                    marker=dict(
+                        size=62,
+                        color="rgba(239, 68, 68, 0.28)"
+                        if phase_key == "EMERGENCY_RETURN"
+                        else "rgba(34, 197, 94, 0.28)",
+                        line=dict(
+                            width=2.5,
+                            color="#ef4444" if phase_key == "EMERGENCY_RETURN" else "#22c55e",
+                        ),
+                    ),
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+
+        fig.add_trace(
+            go.Scatter(
+                x=[nx],
+                y=[ny],
+                mode="markers+text",
+                name=phase_key,
+                text=[f"<b>★ {nlabel}</b>" if is_active else nlabel],
+                textposition="middle center",
+                textfont=dict(
+                    size=10.5 if is_active else 9.5,
+                    color="#ffffff" if is_active else "#cbd5e1",
+                ),
+                marker=dict(
+                    size=48 if is_active else 40,
+                    color=base_col if is_active else "#1e293b",
+                    line=dict(
+                        width=3.5 if is_active else 1.8,
+                        color="#ffffff" if is_active else base_col,
+                    ),
+                ),
+                hovertext=f"Durum: {phase_key} ({'AKTİF' if is_active else 'Pasif'})",
+                hoverinfo="text",
+                showlegend=False,
+            )
+        )
+
+    fig.update_layout(
+        title=f"🔀 Canlı Uçuş Durum Makinesi Diyagramı (Aktif Durum: {active_phase})",
+        xaxis=dict(range=[-1.1, 9.2], showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(range=[-0.35, 3.35], showgrid=False, zeroline=False, showticklabels=False),
+        annotations=annotations,
+        height=315,
+        margin=dict(l=15, r=15, t=46, b=15),
+        paper_bgcolor=_PAPER_BG,
+        plot_bgcolor=_DARK_BG,
+        font=dict(color=_TEXT_COLOR),
+    )
+    return fig
+
+
 def create_route_map_2d_chart(
     route_plans: Sequence[RoutePlan],
     restricted_zones: Sequence[RestrictedZone],

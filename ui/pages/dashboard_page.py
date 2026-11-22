@@ -4,6 +4,8 @@ Ekran 1: Dashboard — Genel Simülasyon Durumu, Aktif Uçuş Fazı, Telemetri v
 
 from __future__ import annotations
 
+import json
+
 import streamlit as st
 
 from src.simulation.mission_simulator import MissionSimulator
@@ -171,6 +173,31 @@ def render_dashboard_page(sim: MissionSimulator) -> None:
         else:
             st.success(msg_txt)
 
+    # Öneri G: Tek Tıkla Hazır Taktik Görev Senaryoları (5 Kalıp Entegre Otomasyon)
+    with st.expander("🎬 Tek Tıkla Hazır Taktik Görev Senaryoları (5 GoF Kalıbı Entegre Test)", expanded=True):
+        sc_col1, sc_col2, sc_col3 = st.columns(3)
+        if sc_col1.button(
+            "🛰️ Senaryo 1: Uzun Menzil Keşif Devriyesi (AKSUNGUR-R + Loitering)",
+            use_container_width=True,
+        ):
+            sc_res = sim.run_tactical_scenario("RECON_PATROL")
+            st.session_state["last_tick_toast"] = sc_res["summary"]
+            st.rerun()
+        if sc_col2.button(
+            "⚡ Senaryo 2: Ani Radar Tehdidi & Otomatik Kaçınma (AKINCI-S + Evasion)",
+            use_container_width=True,
+        ):
+            sc_res = sim.run_tactical_scenario("STRIKE_RADAR_EVASION")
+            st.session_state["last_tick_toast"] = sc_res["summary"]
+            st.rerun()
+        if sc_col3.button(
+            "🚨 Senaryo 3: EW Karıştırma & Kritik Yakıt RTB (AKINCI-B + Failsafe)",
+            use_container_width=True,
+        ):
+            sc_res = sim.run_tactical_scenario("EW_JAMMING_FAILSAFE_RTB")
+            st.session_state["last_tick_toast"] = sc_res["summary"]
+            st.rerun()
+
     # Orta Bölüm: 2B/3B Taktik Harita, Dikey İrtifa Kesiti ve Ağırlık/Telemetri Özeti
     left_col, right_col = st.columns([3, 2])
     with left_col:
@@ -231,8 +258,31 @@ def render_dashboard_page(sim: MissionSimulator) -> None:
 
     st.divider()
 
-    # Alt Bölüm: Sistem Olay Günlüğü
-    st.subheader("📋 Merkezi Sistem Olay Günlüğü (MissionEventLogger)")
+    # Alt Bölüm: Sistem Olay Günlüğü ve Görev Sonu Raporu (AAR) Dışa Aktarım
+    log_hdr_col, dl_json_col, dl_csv_col = st.columns([3, 1.3, 1.3])
+    with log_hdr_col:
+        st.subheader("📋 Merkezi Sistem Olay Günlüğü & Görev Sonu Raporu (AAR)")
+    with dl_json_col:
+        report_json = json.dumps(
+            sim.export_mission_report_dict(), ensure_ascii=False, indent=2
+        )
+        st.download_button(
+            label="📥 Görev Raporu İndir (JSON)",
+            data=report_json.encode("utf-8"),
+            file_name="uav_mission_after_action_report.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+    with dl_csv_col:
+        events_csv = sim.export_events_csv()
+        st.download_button(
+            label="📥 Olay Günlüğü İndir (CSV)",
+            data=events_csv.encode("utf-8"),
+            file_name="uav_mission_event_logs.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
     events = system_logger.get_events()
     if not events:
         st.info("Henüz kayıtlı sistem olayı bulunmuyor.")

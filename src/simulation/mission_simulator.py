@@ -8,6 +8,8 @@ Kullanıcı arayüzünden (Streamlit) tamamen bağımsızdır; hem arayüz durum
 
 from __future__ import annotations
 
+import csv
+import io
 import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -492,3 +494,175 @@ class MissionSimulator:
             "uav_y_km": self.uav_position.y_km,
             "route_progress_pct": self.route_progress_pct,
         }
+
+    def run_tactical_scenario(self, scenario_key: str) -> Dict[str, Any]:
+        """
+        Öneri G — Tek Tıkla Hazır Taktik Görev Senaryoları (5 GoF Kalıbı Entegre):
+        Önceden tanımlı taktik senaryoları (RECON_PATROL, STRIKE_RADAR_EVASION,
+        EW_JAMMING_FAILSAFE_RTB) uçtan uca koşturur ve özet sonuç döndürür.
+        """
+        self.reset_flight_position()
+
+        if scenario_key == "RECON_PATROL":
+            self.set_preset_platform("LONG_RECON")
+            self.decorator_layers = [
+                "CompressionDecorator",
+                "AesEncryptionDecorator",
+                "AntiJammingDecorator",
+            ]
+            self.frequency_band = "SATCOM-Ku"
+            self.simulate_interference = False
+            self.switch_navigation_strategy_by_name("LOITERING_SEARCH")
+            for _ in range(4):
+                self.run_simulation_tick(
+                    auto_evade_radar_threat=False,
+                    auto_lifecycle=True,
+                    step_distance_km=22.0,
+                )
+            summary_msg = (
+                "🛰️ Senaryo 1 (Uzun Menzilli Keşif Devriyesi) tamamlandı: AKSUNGUR-R platformu "
+                "LoiteringSearchStrategy ile serpantin taramaya girdi, tüm Decorator katmanları aktif."
+            )
+
+        elif scenario_key == "STRIKE_RADAR_EVASION":
+            self.set_preset_platform("STD_STRIKE")
+            self.decorator_layers = [
+                "CompressionDecorator",
+                "AesEncryptionDecorator",
+                "AntiJammingDecorator",
+            ]
+            self.frequency_band = "L-Band-Tactical"
+            self.simulate_interference = True
+            self.switch_navigation_strategy_by_name("SHORTEST_PATH")
+            # Radar sensör imlecini 0'dan başlatarak 2. adımda RADAR_EMITTER yakalamasını garanti et
+            self.radar_adapter = StanagRadarAdapter(LegacyStanagRadarSDK())
+            self.thermal_adapter = ThermalCameraAdapter(VendorThermalDevice())
+            self.mission_computer = MissionComputer([self.radar_adapter, self.thermal_adapter])
+            for _ in range(4):
+                self.run_simulation_tick(
+                    auto_evade_radar_threat=True,
+                    auto_lifecycle=True,
+                    step_distance_km=20.0,
+                )
+            summary_msg = (
+                "⚡ Senaryo 2 (Ani Radar Tehdidi & Alçak İrtifa Kaçınma) tamamlandı: AKINCI-S "
+                "ShortestPathStrategy ile kalktı; STANAG radarı yüksek güvenli RADAR_EMITTER tespit "
+                "edince NavigationSystem otomatik olarak RadarEvasionStrategy'ye geçti!"
+            )
+
+        elif scenario_key == "EW_JAMMING_FAILSAFE_RTB":
+            self.set_preset_platform("HEAVY_STRIKE")
+            self.decorator_layers = [
+                "CompressionDecorator",
+                "AesEncryptionDecorator",
+                "AntiJammingDecorator",
+            ]
+            self.frequency_band = "SATCOM-Ku"
+            self.simulate_interference = True
+            self.switch_navigation_strategy_by_name("RADAR_EVASION")
+            for _ in range(3):
+                self.run_simulation_tick(
+                    auto_evade_radar_threat=True,
+                    auto_lifecycle=True,
+                    step_distance_km=24.0,
+                )
+            # Kritik yakıt (<=%15) simüle ederek otomatik Failsafe RTB tetikle ve 2 adım üsse dön
+            self.current_fuel_kg = round(self.active_platform.fuel_weight_kg * 0.13, 1)
+            for _ in range(2):
+                self.run_simulation_tick(
+                    auto_evade_radar_threat=True,
+                    auto_lifecycle=True,
+                    step_distance_km=18.0,
+                )
+            summary_msg = (
+                "🚨 Senaryo 3 (EW Karıştırma & Kritik Yakıt Acil Eve Dönüş) tamamlandı: AKINCI-B "
+                "elektronik karıştırma altında uçarken yakıt %15'in altına düştü, State Kalıbı "
+                "otomatik EMERGENCY_RETURN fazına geçti ve İHA Ana Üsse yöneldi!"
+            )
+        else:
+            raise ValueError(f"Bilinmeyen taktik senaryo: {scenario_key}")
+
+        system_logger.info("Scenario", summary_msg)
+        return {
+            "scenario_key": scenario_key,
+            "summary": summary_msg,
+            "flight_phase": self.flight_controller.current_phase_name,
+            "active_strategy": self.last_route_plan.strategy_name if self.last_route_plan else "NONE",
+            "uav_model": self.active_platform.model_name,
+            "route_progress_pct": self.route_progress_pct,
+        }
+
+    def export_mission_report_dict(self) -> Dict[str, Any]:
+        """
+        Öneri G — Görev Sonu Raporu (After-Action Report / JSON Dışa Aktarım):
+        Tüm 5 GoF kalıbının güncel durumunu, performans verilerini, rota özetini,
+        telemetri katmanlarını ve olay kayıtlarını tek bir yapısal sözlükte toplar.
+        """
+        return {
+            "report_title": "İHA Görev ve Uçuş Kontrol Yazılımı — Görev Sonu Raporu (AAR)",
+            "hud_telemetry": self.get_hud_telemetry(),
+            "builder_platform": self.active_platform.to_summary_dict(),
+            "aerodynamic_performance": self.active_platform.get_performance_metrics(),
+            "state_flight_controller": {
+                "summary": self.flight_controller.get_status_summary(),
+                "transition_history": [
+                    {
+                        "command": h.command,
+                        "accepted": h.accepted,
+                        "previous_phase": h.previous_phase,
+                        "current_phase": h.current_phase,
+                        "altitude_m": h.altitude_m,
+                        "speed_knots": h.speed_knots,
+                        "throttle_pct": h.throttle_pct,
+                        "message": h.message,
+                    }
+                    for h in self.flight_controller.get_transition_history()
+                ],
+            },
+            "strategy_navigation": (
+                {
+                    "strategy_name": self.last_route_plan.strategy_name,
+                    "strategy_title": self.last_route_plan.strategy_title,
+                    "total_distance_km": self.last_route_plan.total_distance_km,
+                    "recommended_altitude_m": self.last_route_plan.recommended_altitude_m,
+                    "is_safe": self.last_route_plan.is_safe,
+                    "route_distance_traveled_km": self.route_distance_traveled_km,
+                    "route_progress_pct": self.route_progress_pct,
+                    "flight_trail_points": [
+                        {"x_km": pt.x_km, "y_km": pt.y_km, "label": pt.label}
+                        for pt in self.flight_trail
+                    ],
+                }
+                if self.last_route_plan
+                else None
+            ),
+            "adapter_targets": [t.to_dict() for t in self.last_targets],
+            "decorator_telemetry": (
+                {
+                    "wrapping_expression": self.last_telemetry_packet.wrapping_expression,
+                    "wrapping_chain": list(self.last_telemetry_packet.wrapping_chain),
+                    "original_size_bytes": self.last_telemetry_packet.original_size_bytes,
+                    "final_size_bytes": self.last_telemetry_packet.final_size_bytes,
+                }
+                if self.last_telemetry_packet
+                else None
+            ),
+            "system_events": [
+                {
+                    "timestamp_utc": ev.timestamp,
+                    "level": ev.level,
+                    "module": ev.module,
+                    "message": ev.message,
+                }
+                for ev in system_logger.get_events()
+            ],
+        }
+
+    def export_events_csv(self) -> str:
+        """Sistem olay günlüğünü (`MissionEventLogger`) indirilebilir UTF-8 CSV metnine dönüştürür."""
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Timestamp_UTC", "Level", "Module", "Message"])
+        for ev in system_logger.get_events():
+            writer.writerow([ev.timestamp, ev.level, ev.module, ev.message])
+        return output.getvalue()
