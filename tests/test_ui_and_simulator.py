@@ -4,11 +4,17 @@ Aşama 7: Simülasyon Orkestratörü (MissionSimulator) ve Görselleştirme (Plo
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import plotly.graph_objects as go
 
 from src.models.flight_state_models import FlightCommands
 from src.patterns.strategy import ShortestPathStrategy
 from src.simulation.mission_simulator import MissionSimulator
+from ui.pages.design_patterns_page import (
+    build_live_pattern_inspection,
+    extract_mermaid_blocks,
+)
 from ui.components.charts import (
     create_altitude_profile_chart,
     create_avionics_gauges_chart,
@@ -305,3 +311,26 @@ def test_state_machine_graph_tactical_scenarios_and_report_exports() -> None:
 
     csv_text = sim.export_events_csv()
     assert csv_text.startswith("Timestamp_UTC,Level,Module,Message")
+
+
+def test_mermaid_uml_extractor_and_live_pattern_inspector() -> None:
+    """
+    Öneri H: `docs/architecture_and_uml.md` içindeki tüm 6 Mermaid UML diyagramının
+    ayrıştırıldığını (`extract_mermaid_blocks`) ve Canlı Kalıp Nesne Denetçisinin
+    (`build_live_pattern_inspection`) 5 GoF kalıbı için çalışma zamanı sınıflarını
+    doğru raporladığını doğrular.
+    """
+    doc_path = Path(__file__).resolve().parents[1] / "docs" / "architecture_and_uml.md"
+    blocks = extract_mermaid_blocks(doc_path.read_text(encoding="utf-8"))
+    assert len(blocks) == 6
+    assert any("classDiagram" in code for _, code in blocks)
+    assert any("flowchart" in code for _, code in blocks)
+
+    sim = MissionSimulator()
+    sim.run_tactical_scenario("STRIKE_RADAR_EVASION")
+    inspection = build_live_pattern_inspection(sim)
+    assert len(inspection) == 5
+    assert "StrikeUAVBuilder" in inspection[0]["active_concrete_class"]
+    assert "StanagRadarAdapter" in inspection[1]["active_concrete_class"]
+    assert "BaseRadioChannel" in inspection[2]["active_concrete_class"]
+    assert "RadarEvasionStrategy" in inspection[4]["active_concrete_class"]

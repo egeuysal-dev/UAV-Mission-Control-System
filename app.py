@@ -94,7 +94,7 @@ def render_app() -> None:
     elif active_page == "STRATEGY":
         render_navigation_page(sim)
     elif active_page == "PATTERNS":
-        render_design_patterns_page()
+        render_design_patterns_page(sim)
 
 
 if __name__ == "__main__":
