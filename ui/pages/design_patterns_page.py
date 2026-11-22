@@ -4,7 +4,7 @@ Ekran 7: Design Patterns — Görsel Mermaid UML Sınıf Diyagramları ve Canlı
 
 from __future__ import annotations
 
-import html
+import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -149,12 +149,16 @@ def build_live_pattern_inspection(sim: MissionSimulator) -> List[Dict[str, Any]]
     ]
 
 
-def _render_mermaid_svg_component(mermaid_code: str, height_px: int = 520) -> None:
+def _render_mermaid_svg_component(mermaid_code: str, height_px: int = 560) -> None:
     """
     Mermaid UML diyagramını koyu havacılık temasıyla tarayıcı içinde gerçek
     etkileşimli SVG grafiği olarak çizer (`streamlit.components.v1.html`).
+
+    Not: `mermaid.render()` API'si ile JSON üzerinden ham kaynak metin aktarılır;
+    böylece `<<abstract>>`, `<|--` ve `~` gibi UML karakterleri HTML kaçışından
+    etkilenmeden her zaman eksiksiz SVG olarak üretilir.
     """
-    escaped_code = html.escape(mermaid_code)
+    json_source = json.dumps(mermaid_code)
     html_doc = f"""
     <!DOCTYPE html>
     <html>
@@ -174,27 +178,38 @@ def _render_mermaid_svg_component(mermaid_code: str, height_px: int = 520) -> No
         }}
         .mermaid-wrap {{
           width: 100%;
+          min-height: 200px;
           text-align: center;
           background: #111827;
           border: 1px solid #1e293b;
           border-radius: 10px;
-          padding: 16px;
+          padding: 18px;
           box-sizing: border-box;
         }}
-        .mermaid svg {{
+        .mermaid-wrap svg {{
           max-width: 100% !important;
           height: auto !important;
+        }}
+        .err-box {{
+          color: #fca5a5;
+          background: #450a0a;
+          border: 1px solid #ef4444;
+          border-radius: 6px;
+          padding: 12px;
+          text-align: left;
+          font-family: Consolas, monospace;
+          font-size: 13px;
         }}
       </style>
     </head>
     <body>
-      <div class="mermaid-wrap">
-        <pre class="mermaid">{escaped_code}</pre>
-      </div>
+      <div id="mermaid-target" class="mermaid-wrap">Diyagram çiziliyor...</div>
       <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+        const diagramSource = {json_source};
         mermaid.initialize({{
-          startOnLoad: true,
+          startOnLoad: false,
+          securityLevel: 'loose',
           theme: 'dark',
           themeVariables: {{
             primaryColor: '#1e293b',
@@ -206,6 +221,13 @@ def _render_mermaid_svg_component(mermaid_code: str, height_px: int = 520) -> No
             fontFamily: 'Consolas, Segoe UI, sans-serif'
           }}
         }});
+        const targetEl = document.getElementById('mermaid-target');
+        try {{
+          const {{ svg }} = await mermaid.render('uml_diagram_svg', diagramSource);
+          targetEl.innerHTML = svg;
+        }} catch (err) {{
+          targetEl.innerHTML = `<div class="err-box"><strong>Mermaid Çizim Hatası:</strong><br/>${{String(err)}}</div>`;
+        }}
       </script>
     </body>
     </html>
@@ -256,13 +278,19 @@ def render_design_patterns_page(sim: Optional[MissionSimulator] = None) -> None:
 
         if mermaid_blocks:
             st.subheader("📐 İnteraktif Görsel UML Sınıf ve Akış Diyagramları (Mermaid SVG)")
-            tabs = st.tabs([title for title, _ in mermaid_blocks])
-            for tab, (title, code) in zip(tabs, mermaid_blocks):
-                with tab:
-                    diag_height = 560 if "Flowchart" in title or "Akışı" in title else 520
-                    _render_mermaid_svg_component(code, height_px=diag_height)
-                    with st.expander(f"📝 {title} — Mermaid Kaynak Kodu", expanded=False):
-                        st.code(code, language="mermaid")
+            block_titles = [title for title, _ in mermaid_blocks]
+            selected_idx = st.radio(
+                "Görüntülenecek UML Diyagramını Seçin:",
+                options=list(range(len(mermaid_blocks))),
+                format_func=lambda i: block_titles[i],
+                horizontal=True,
+                key="uml_diagram_selector",
+            )
+            sel_title, sel_code = mermaid_blocks[selected_idx]
+            diag_height = 580 if "Akışı" in sel_title or "Flowchart" in sel_title else 560
+            _render_mermaid_svg_component(sel_code, height_px=diag_height)
+            with st.expander(f"📝 {sel_title} — Mermaid Kaynak Kodu", expanded=False):
+                st.code(sel_code, language="mermaid")
 
         st.divider()
         st.subheader("📋 GoF Tasarım Kalıpları Özet Tablosu")
