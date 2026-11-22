@@ -839,6 +839,147 @@ def create_telemetry_stage_size_chart(packet: TelemetryPacketResult) -> go.Figur
     return fig
 
 
+def create_rf_spectrum_chart(
+    frequency_band: str,
+    active_layers: Sequence[str],
+    jamming_active: bool = True,
+    jamming_intensity_db: float = 20.0,
+) -> go.Figure:
+    """
+    Öneri F — Elektronik Harp (EW) RF Frekans Spektrum Analizörü:
+    Seçilen veri bağı frekans bandında taşıyıcı telemetri sinyal gücünü (`dBm`),
+    termal gürültü tabanını, düşman elektronik karıştırma (jamming) darbelerini ve
+    `AntiJammingDecorator` aktifken frekans atlamalı (`FHSS`) yedek taşıyıcılar ile
+    FEC kazancının bağlantıyı nasıl ayakta tuttuğunu görselleştirir.
+    """
+    band_cfg = {
+        "SATCOM-Ku": (14250.0, 50.0, "MHz"),
+        "UHF-433MHz": (433.5, 6.0, "MHz"),
+        "L-Band-Tactical": (1350.0, 40.0, "MHz"),
+        "S-Band-LOS": (2250.0, 40.0, "MHz"),
+    }
+    center_f, half_span, unit = band_cfg.get(frequency_band, (14250.0, 50.0, "MHz"))
+
+    has_antijam = "AntiJammingDecorator" in active_layers
+    has_aes = "AesEncryptionDecorator" in active_layers
+
+    n_pts = 160
+    freqs = [
+        round(center_f - half_span + (2.0 * half_span * i / (n_pts - 1)), 2)
+        for i in range(n_pts)
+    ]
+
+    noise_floor_dbm = -96.0
+    carrier_peak_dbm = -48.0
+    sigma_main = half_span * 0.085
+
+    signal_dbm: List[float] = []
+    jammer_dbm: List[float] = []
+
+    hop1_f = center_f - half_span * 0.42
+    hop2_f = center_f + half_span * 0.46
+    sigma_hop = half_span * 0.065
+
+    for idx, f in enumerate(freqs):
+        # Sentetik gürültü tabanı dalgalanması
+        ripple = 1.6 * math.sin(idx * 0.7) + 1.1 * math.cos(idx * 1.9)
+        base_n = noise_floor_dbm + ripple
+
+        # Ana taşıyıcı sinyal lobu
+        main_lobe = (carrier_peak_dbm - noise_floor_dbm) * math.exp(
+            -((f - center_f) ** 2) / (2.0 * (sigma_main ** 2))
+        )
+
+        # AntiJammingDecorator aktifse FHSS frekans atlama yedek kanalları oluştur
+        fhss_lobe = 0.0
+        if has_antijam:
+            lobe_a = (carrier_peak_dbm - 4.0 - noise_floor_dbm) * math.exp(
+                -((f - hop1_f) ** 2) / (2.0 * (sigma_hop ** 2))
+            )
+            lobe_b = (carrier_peak_dbm - 3.0 - noise_floor_dbm) * math.exp(
+                -((f - hop2_f) ** 2) / (2.0 * (sigma_hop ** 2))
+            )
+            fhss_lobe = max(lobe_a, lobe_b)
+
+        sig_val = round(base_n + max(main_lobe, fhss_lobe), 2)
+        signal_dbm.append(sig_val)
+
+        # Düşman Elektronik Karıştırma (Jamming) Darbesi
+        if jamming_active:
+            jam_peak = -66.0 + jamming_intensity_db  # ör. -46 dBm (taşıyıcıyı bastıran darbe)
+            jam_sigma = half_span * 0.13
+            jam_lobe = max(
+                0.0,
+                (jam_peak - noise_floor_dbm)
+                * math.exp(-((f - (center_f + half_span * 0.04)) ** 2) / (2.0 * (jam_sigma ** 2))),
+            )
+            jammer_dbm.append(round(base_n + jam_lobe, 2))
+        else:
+            jammer_dbm.append(round(base_n, 2))
+
+    # Demodülasyon eşiği (AntiJamming FEC aktifse alıcı eşiği -72 dBm'e kadar esner)
+    demod_threshold = -72.0 if has_antijam else -60.0
+    link_status = (
+        "🟢 BAĞLANTI GÜVENDE (FHSS + FEC AKTİF)"
+        if (has_antijam or not jamming_active)
+        else "🔴 KARIŞTIRMA ALTINDA (PAKET KAYBI RİSKİ)"
+    )
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=freqs,
+            y=signal_dbm,
+            mode="lines",
+            fill="tozeroy",
+            fillcolor="rgba(6, 182, 212, 0.22)",
+            line=dict(color="#06b6d4", width=2.5),
+            name=(
+                f"📡 Telemetri Sinyali ({'FHSS + AES' if (has_antijam and has_aes) else ('FHSS Korumalı' if has_antijam else 'Tek Taşıyıcı')})"
+            ),
+        )
+    )
+
+    if jamming_active:
+        fig.add_trace(
+            go.Scatter(
+                x=freqs,
+                y=jammer_dbm,
+                mode="lines",
+                fill="tozeroy",
+                fillcolor="rgba(239, 68, 68, 0.26)",
+                line=dict(color="#ef4444", width=2.2, dash="dash"),
+                name=f"⚡ EW Elektronik Karıştırma Darbesi (+{jamming_intensity_db:.0f} dB)",
+            )
+        )
+
+    fig.add_hline(
+        y=demod_threshold,
+        line_width=2,
+        line_dash="dot",
+        line_color="#22c55e" if has_antijam else "#f59e0b",
+        annotation_text=(
+            f"Alıcı Demodülasyon Eşiği: {demod_threshold:.0f} dBm "
+            f"({'FEC Kazancı +12 dB' if has_antijam else 'Standart'})"
+        ),
+        annotation_position="top right",
+        annotation_font_color="#86efac" if has_antijam else "#fde047",
+    )
+
+    fig.update_layout(
+        title=f"📶 RF Spektrum Analizörü ({frequency_band}) — {link_status}",
+        xaxis=dict(title=f"Frekans ({unit})", gridcolor=_GRID_COLOR),
+        yaxis=dict(title="Sinyal Gücü (dBm)", range=[-105, -28], gridcolor=_GRID_COLOR),
+        height=340,
+        margin=dict(l=30, r=30, t=50, b=30),
+        paper_bgcolor=_PAPER_BG,
+        plot_bgcolor=_DARK_BG,
+        font=dict(color=_TEXT_COLOR),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.26, xanchor="center", x=0.5),
+    )
+    return fig
+
+
 def create_flight_dynamics_chart(controller: FlightController) -> go.Figure:
     """
     State Kalıbı: Uçuş kontrolcüsünün durum geçiş geçmişindeki irtifa (m),

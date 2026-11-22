@@ -14,6 +14,7 @@ from ui.components.charts import (
     create_avionics_gauges_chart,
     create_flight_dynamics_chart,
     create_flir_thermal_view_chart,
+    create_rf_spectrum_chart,
     create_route_map_2d_chart,
     create_route_map_3d_chart,
     create_sensor_polar_and_cartesian_charts,
@@ -245,3 +246,27 @@ def test_ppi_radar_sweep_and_flir_thermal_view_charts() -> None:
             fig_flir = create_flir_thermal_view_chart(target, polarity=pol)
             assert isinstance(fig_flir, go.Figure)
             assert len(fig_flir.data) >= 5
+
+
+def test_rf_spectrum_analyzer_chart() -> None:
+    """
+    Öneri F: Elektronik Harp (EW) RF Spektrum Analizörü grafiğinin
+    (`create_rf_spectrum_chart`) karıştırma aktif/pasif ve AntiJammingDecorator
+    açık/kapalı durumlarında geçerli Plotly Figure ürettiğini doğrular.
+    """
+    fig_protected = create_rf_spectrum_chart(
+        frequency_band="SATCOM-Ku",
+        active_layers=["CompressionDecorator", "AesEncryptionDecorator", "AntiJammingDecorator"],
+        jamming_active=True,
+        jamming_intensity_db=22.0,
+    )
+    assert isinstance(fig_protected, go.Figure)
+    assert len(fig_protected.data) == 2
+
+    fig_clean = create_rf_spectrum_chart(
+        frequency_band="UHF-433MHz",
+        active_layers=[],
+        jamming_active=False,
+    )
+    assert isinstance(fig_clean, go.Figure)
+    assert len(fig_clean.data) == 1

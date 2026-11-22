@@ -13,7 +13,10 @@ from src.patterns.decorator import (
     remove_decorator_layer,
 )
 from src.simulation.mission_simulator import MissionSimulator
-from ui.components.charts import create_telemetry_stage_size_chart
+from ui.components.charts import (
+    create_rf_spectrum_chart,
+    create_telemetry_stage_size_chart,
+)
 from ui.components.theme import render_pattern_header
 
 
@@ -103,13 +106,120 @@ def render_telemetry_system_page(sim: MissionSimulator) -> None:
         chain_badges = " ➡️ ".join([f"`{layer}`" for layer in packet.wrapping_chain])
         st.markdown(chain_badges)
 
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3, m4 = st.columns(4)
         m1.metric("Ham Mesaj Boyutu", f"{packet.original_size_bytes} Bayt")
         m2.metric("Nihai Paket Boyutu", f"{packet.final_size_bytes} Bayt")
-        m3.metric("Toplam Katman Sayısı", f"{len(packet.stages)} Aşama")
+        overhead_pct = round(
+            ((packet.final_size_bytes - packet.original_size_bytes) / max(1, packet.original_size_bytes)) * 100.0,
+            1,
+        )
+        m3.metric("Paket Değişimi", f"{overhead_pct:+.1f}%", f"{len(packet.stages)} Aşama")
+        est_latency_ms = round(
+            1.8
+            + (1.4 if "CompressionDecorator" in sim.decorator_layers else 0.0)
+            + (2.6 if "AesEncryptionDecorator" in sim.decorator_layers else 0.0)
+            + (3.1 if "AntiJammingDecorator" in sim.decorator_layers else 0.0),
+            1,
+        )
+        m4.metric("Tahmini Gecikme", f"{est_latency_ms} ms")
 
         fig_size = create_telemetry_stage_size_chart(packet)
         st.plotly_chart(fig_size, use_container_width=True)
+
+    st.divider()
+
+    # Öneri F: Elektronik Harp (EW) RF Spektrum Analizörü ve Siber Saldırı Laboratuvarı
+    st.subheader("📶 Elektronik Harp (EW) RF Spektrum Analizörü ve Siber Saldırı (MITM / Bit-Flip) Laboratuvarı")
+    ew_col1, ew_col2 = st.columns([3, 2])
+
+    with ew_col1:
+        jam_intensity = st.slider(
+            "Düşman Elektronik Karıştırma (Jamming) Şiddeti (+dB):",
+            min_value=5.0,
+            max_value=32.0,
+            value=20.0,
+            step=1.0,
+            disabled=not sim.simulate_interference,
+        )
+        rf_fig = create_rf_spectrum_chart(
+            frequency_band=sim.frequency_band,
+            active_layers=sim.decorator_layers,
+            jamming_active=sim.simulate_interference,
+            jamming_intensity_db=jam_intensity,
+        )
+        st.plotly_chart(rf_fig, use_container_width=True)
+
+    with ew_col2:
+        st.markdown("#### ⚔️ Canlı Siber Saldırı & Paket Bozulma Testleri")
+        st.caption(
+            "İletilen gerçek telemetri çerçevesi (`packet.final_payload`) üzerinde saldırı/parazit "
+            "simüle ederek aktif Decorator katmanlarının (`AES-256-GCM` ve `CRC32/FEC`) tepkisini test edin."
+        )
+
+        # Test 1: RF Kanal Paraziti (Bit-Flip Bozulma)
+        if st.button("⚡ 1. RF Paraziti Enjekte Et (Gövde Bit-Flip Bozulması)", use_container_width=True, type="primary"):
+            frame = packet.final_payload
+            # Çerçevenin son 3 karakterini boz (RF gürültüsü simülasyonu)
+            corrupted_frame = frame[:-3] + ("X" if frame[-3] != "X" else "Z") + frame[-2:]
+            st.code(f"Bozulmuş Çerçeve Sonu: ...{corrupted_frame[-48:]}", language="text")
+            try:
+                repaired = channel.receive(corrupted_frame)
+                if "AntiJammingDecorator" in sim.decorator_layers:
+                    st.success(
+                        "✅ **AntiJammingDecorator (CRC32/FEC) PAKETİ KURTARDI!** "
+                        "CRC32 uyuşmazlığı tespit edildi ve yedek FEC bloğundan orijinal telemetri hatasız onarıldı."
+                    )
+                    st.code(repaired, language="json")
+                else:
+                    st.warning(
+                        "⚠️ **KORUMASIZ KANAL UYARISI:** `AntiJammingDecorator` ve `AesEncryptionDecorator` "
+                        "kapalı olduğu için bozuk veri sessizce alıcıya ulaştı (veri bütünlüğü bozuldu)!"
+                    )
+                    st.code(repaired, language="text")
+            except TelemetryProcessingError as exc:
+                st.error(
+                    f"❌ **Alıcı Paketi Reddetti (`TelemetryProcessingError`):** {exc} "
+                    f"(Not: RF bit hatalarını otomatik onarmak için `AntiJammingDecorator` katmanını en dışa ekleyin.)"
+                )
+
+        # Test 2: MITM (Ortadaki Adam) Yetkisiz Paket Değiştirme Saldırısı
+        if st.button("🕵️ 2. MITM Saldırısı (Şifreli/Açık Pakete Yetkisiz Müdahale)", use_container_width=True):
+            frame = packet.final_payload
+            if "AES256GCM:" in frame:
+                # AES-256-GCM şifreli metninin ortasından karakter değiştir (FEC'yi de aşan bütünlük saldırısı)
+                tampered_frame = frame.replace("AES256GCM:", "AES256GCM:")
+                aes_idx = tampered_frame.find("AES256GCM:") + 18
+                if aes_idx < len(tampered_frame) - 2:
+                    flipped_ch = "A" if tampered_frame[aes_idx] != "A" else "B"
+                    tampered_frame = (
+                        tampered_frame[:aes_idx] + flipped_ch + tampered_frame[aes_idx + 1 :]
+                    )
+                # Eğer AntiJamming dışarıdaysa ve saldırgan FEC bloğunu da bozduysa AES-GCM yakalar
+                if tampered_frame.startswith("AJ_FEC|"):
+                    # Saldırganın hem gövdeyi hem de FEC bloğunu değiştirdiği gelişmiş MITM simülasyonu
+                    parts = tampered_frame.split("|", 4)
+                    if len(parts) == 5:
+                        fec_body = parts[2]
+                        parts[2] = fec_body[:-2] + ("Q" if fec_body[-2] != "Q" else "W") + fec_body[-1]
+                        tampered_frame = "|".join(parts)
+            else:
+                # Şifreleme yoksa saldırgan telemetri irtifasını/notunu açıkça değiştirir!
+                tampered_frame = frame.replace("NOMINAL", "SPOOFED_BY_MITM")
+                if tampered_frame == frame:
+                    tampered_frame = frame[:-2] + "99"
+
+            try:
+                received_after_mitm = channel.receive(tampered_frame)
+                st.error(
+                    "🚨 **GÜVENLİK AÇIĞI TESPİT EDİLDİ (MITM BAŞARILI OLDU)!** "
+                    "`AesEncryptionDecorator` aktif olmadığı için saldırgan telemetri mesajını fark edilmeden değiştirdi:"
+                )
+                st.code(received_after_mitm, language="text")
+            except TelemetryProcessingError as exc:
+                st.success(
+                    f"🛡️ **SİBER SALDIRI ENGELLENDİ!** Aktif güvenlik dekoratörleri yetkisiz paket "
+                    f"değişikliğini (AES-256-GCM 128-bit Auth Tag / CRC32) anında yakalayıp reddetti:\n\n`{exc}`"
+                )
 
     st.divider()
 
